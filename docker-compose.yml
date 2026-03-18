@@ -1,0 +1,59 @@
+# =============================================================================
+# APOST - Docker Compose Configuration
+# For local development and deployment
+# =============================================================================
+
+version: '3.8'
+
+services:
+  apost:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: apost
+    ports:
+      - "8000:8000"
+    environment:
+      # App Configuration
+      - DEBUG=false
+      - CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
+      
+      # LLM API Keys (set via .env file or environment)
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      
+      # Optimizer Configuration
+      - OPTIMIZER_MODEL=claude-sonnet-4-20250514
+      - MAX_TOKENS_GAP_ANALYSIS=1500
+      - MAX_TOKENS_OPTIMIZATION=4096
+      - MAX_TOKENS_CHAT=2048
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+# Optional: Development mode with hot reload
+# Uncomment for local development
+
+  # apost-dev:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.dev
+  #   container_name: apost-dev
+  #   ports:
+  #     - "5173:5173"  # Vite dev server
+  #     - "8000:8000"  # FastAPI backend
+  #   volumes:
+  #     - ./frontend:/app/frontend:delegated
+  #     - ./backend:/app/backend:delegated
+  #     - /app/frontend/node_modules
+  #   environment:
+  #     - DEBUG=true
+  #     - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+  #   command: >
+  #     sh -c "cd /app/backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 &
+  #            cd /app/frontend && npm run dev -- --host 0.0.0.0"

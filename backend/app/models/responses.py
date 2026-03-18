@@ -1,0 +1,126 @@
+"""
+Pydantic response models for API endpoints.
+
+These define the shape of outgoing response bodies.
+"""
+
+from typing import Optional, Literal
+
+from pydantic import BaseModel, Field
+
+
+# Gap Analysis Response Models
+
+class TCRTEScore(BaseModel):
+    """Score for a single TCRTE dimension."""
+
+    score: int = Field(..., ge=0, le=100, description="Score from 0-100")
+    status: Literal["good", "weak", "missing"] = Field(..., description="Status classification")
+    note: str = Field(..., description="Brief explanation of the score")
+
+
+class TCRTEScores(BaseModel):
+    """Scores for all five TCRTE dimensions."""
+
+    task: TCRTEScore
+    context: TCRTEScore
+    role: TCRTEScore
+    tone: TCRTEScore
+    execution: TCRTEScore
+
+
+class GapQuestion(BaseModel):
+    """A question generated to fill a TCRTE gap."""
+
+    id: str = Field(..., description="Unique question identifier")
+    dimension: Literal["task", "context", "role", "tone", "execution"] = Field(
+        ..., description="The TCRTE dimension this question addresses"
+    )
+    question: str = Field(..., description="The question text")
+    placeholder: str = Field(..., description="Example answer hint")
+    importance: Literal["critical", "recommended", "optional"] = Field(
+        ..., description="Priority level"
+    )
+
+
+class GapAnalysisResponse(BaseModel):
+    """Complete gap analysis response."""
+
+    tcrte: TCRTEScores = Field(..., description="TCRTE dimension scores")
+    overall_score: int = Field(..., ge=0, le=100, description="Overall coverage score")
+    complexity: Literal["simple", "medium", "complex"] = Field(
+        ..., description="Task complexity assessment"
+    )
+    complexity_reason: str = Field(..., description="Explanation for complexity rating")
+    recommended_techniques: list[str] = Field(
+        ..., description="List of recommended techniques (CoRe, RAL-Writer, etc.)"
+    )
+    questions: list[GapQuestion] = Field(..., description="Questions to fill coverage gaps")
+    auto_enrichments: list[str] = Field(
+        ..., description="Automatic techniques that will be applied"
+    )
+
+
+# Optimization Response Models
+
+class VariantTCRTEScores(BaseModel):
+    """TCRTE scores for a single variant (simpler format)."""
+
+    task: int = Field(..., ge=0, le=100)
+    context: int = Field(..., ge=0, le=100)
+    role: int = Field(..., ge=0, le=100)
+    tone: int = Field(..., ge=0, le=100)
+    execution: int = Field(..., ge=0, le=100)
+
+
+class PromptVariant(BaseModel):
+    """A single optimized prompt variant."""
+
+    id: int = Field(..., ge=1, le=3, description="Variant number (1, 2, or 3)")
+    name: str = Field(..., description="Variant name (Conservative, Structured, Advanced)")
+    strategy: str = Field(..., description="Brief description of the variant's approach")
+    system_prompt: str = Field(..., description="The optimized system prompt")
+    user_prompt: str = Field(..., description="The optimized user prompt template")
+    prefill_suggestion: Optional[str] = Field(
+        default=None, description="Claude prefill suggestion for format locking"
+    )
+    token_estimate: int = Field(..., ge=0, description="Estimated token count")
+    tcrte_scores: VariantTCRTEScores = Field(..., description="TCRTE coverage scores")
+    strengths: list[str] = Field(..., description="Key strengths of this variant")
+    best_for: str = Field(..., description="Use cases this variant is best suited for")
+    overshoot_guards: list[str] = Field(..., description="Anti-overshoot protections")
+    undershoot_guards: list[str] = Field(..., description="Anti-undershoot protections")
+
+
+class OptimizationAnalysis(BaseModel):
+    """Analysis summary from the optimization process."""
+
+    detected_issues: list[str] = Field(..., description="Issues found in the original prompt")
+    model_notes: str = Field(..., description="Notes about model-specific optimizations")
+    framework_applied: str = Field(..., description="The framework that was applied")
+    coverage_delta: str = Field(..., description="Coverage improvement summary")
+
+
+class OptimizationResponse(BaseModel):
+    """Complete optimization response with all three variants."""
+
+    analysis: OptimizationAnalysis = Field(..., description="Optimization analysis summary")
+    techniques_applied: list[str] = Field(
+        ..., description="List of techniques applied (CoRe, RAL-Writer, etc.)"
+    )
+    variants: list[PromptVariant] = Field(..., description="The three optimized variants")
+
+
+# Chat Response Models
+
+class ChatMessage(BaseModel):
+    """A single chat message."""
+
+    role: Literal["user", "assistant"] = Field(..., description="Message sender role")
+    content: str = Field(..., description="Message content")
+
+
+class ChatResponse(BaseModel):
+    """Chat endpoint response."""
+
+    message: ChatMessage = Field(..., description="The assistant's response")
