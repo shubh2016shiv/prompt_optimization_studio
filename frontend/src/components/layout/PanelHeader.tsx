@@ -48,14 +48,16 @@ export function PanelHeader({
     >
       <div className="flex items-center gap-2">
         {icon && (
-          <span className="text-[var(--text-tertiary)]">{icon}</span>
+          <span className="text-[var(--text-secondary)]">{icon}</span>
         )}
         <div>
-          <h2 className="text-[10px] font-bold uppercase tracking-[1.1px] text-[var(--text-tertiary)]">
+          <h2 className="font-bold uppercase tracking-[0.9px] text-[var(--text-secondary)]"
+              style={{ fontSize: 'var(--text-xs)' }}>
             {title}
           </h2>
           {subtitle && (
-            <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5">
+            <p className="text-[var(--text-tertiary)] mt-0.5"
+               style={{ fontSize: 'var(--text-sm)' }}>
               {subtitle}
             </p>
           )}
@@ -85,7 +87,8 @@ export function FieldLabel({
   className?: string;
 }) {
   return (
-    <label className={cn('block text-[11px] font-semibold text-[var(--text-secondary)] mb-1.5', className)}>
+    <label className={cn('block font-semibold text-[var(--text-secondary)] mb-1.5', className)}
+           style={{ fontSize: 'var(--text-sm)' }}>
       {children}
       {required && <span className="text-[var(--danger)] ml-0.5">*</span>}
       {hint && (

@@ -37,7 +37,8 @@ export function PromptInput() {
         onChange={handleChange}
         placeholder="e.g. Analyze these financial documents and identify all risk factors…"
         rows={7}
-        className="resize-y leading-relaxed text-[11.5px]"
+        className="resize-y leading-relaxed"
+        style={{ fontSize: 'var(--text-base)' }}
       />
     </div>
   );

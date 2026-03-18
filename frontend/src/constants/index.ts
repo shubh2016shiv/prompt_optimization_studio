@@ -17,6 +17,7 @@ export {
 export {
   COLORS,
   FONTS,
+  TYPE_SCALE,
   SPACING,
   RADIUS,
   TRANSITIONS,

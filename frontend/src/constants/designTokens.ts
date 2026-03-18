@@ -45,12 +45,27 @@ export const COLORS = {
   orange: '#ff9f43',
   orangeSoft: 'rgba(255, 159, 67, 0.11)',
   teal: '#2dd4bf',
-  tealSoft: 'rgba(45, 212, 191, 0.11)',
+  tealSoft: 'rgba(45, 212, 191, 0.13)',
+  tealGlow: 'rgba(45, 212, 191, 0.30)',
+
+  // Primary action alias — single token for the main CTA colour
+  primaryAction: '#2dd4bf',
+  primaryActionSoft: 'rgba(45, 212, 191, 0.13)',
+  primaryActionGlow: 'rgba(45, 212, 191, 0.30)',
 } as const;
 
 export const FONTS = {
-  sans: "'IBM Plex Sans', 'Inter', system-ui, sans-serif",
+  sans: "'Inter', 'IBM Plex Sans', system-ui, sans-serif",
   mono: "'JetBrains Mono', 'Fira Code', monospace",
+} as const;
+
+export const TYPE_SCALE = {
+  xs:   '11px',
+  sm:   '12px',
+  base: '13px',
+  md:   '14px',
+  lg:   '16px',
+  xl:   '20px',
 } as const;
 
 export const SPACING = {
@@ -129,10 +144,10 @@ export const SCORE_SPRING_CONFIG = {
 
 /** Layout dimensions */
 export const LAYOUT = {
-  leftPanelWidth: 340,
-  rightPanelWidth: 380,
+  leftPanelWidth: 300,
+  rightPanelWidth: 340,
   rightPanelCollapsedWidth: 48,
   minMiddlePanelWidth: 480,
-  headerHeight: 56,
+  headerHeight: 48,
   mobileBreakpoint: 1024,
 } as const;

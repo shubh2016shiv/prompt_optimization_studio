@@ -53,7 +53,7 @@ export function FrameworkSelector() {
 
       {/* Selected framework description */}
       {selectedFramework !== 'auto' && selectedFrameworkInfo && (
-        <p className="text-[10.5px] text-[var(--text-tertiary)] pl-0.5">
+        <p className="text-[var(--text-secondary)] pl-0.5" style={{ fontSize: 'var(--text-sm)' }}>
           ↳ {selectedFrameworkInfo.description}
         </p>
       )}

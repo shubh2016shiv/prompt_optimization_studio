@@ -40,11 +40,25 @@
   --orange: #ff9f43;
   --orange-soft: rgba(255, 159, 67, 0.11);
   --teal: #2dd4bf;
-  --teal-soft: rgba(45, 212, 191, 0.11);
+  --teal-soft: rgba(45, 212, 191, 0.13);
+  --teal-glow: rgba(45, 212, 191, 0.30);
+
+  /* Primary action — teal drives the main CTA throughout the workflow */
+  --primary-action: var(--teal);
+  --primary-action-soft: var(--teal-soft);
+  --primary-action-glow: var(--teal-glow);
 
   /* Typography */
-  --font-sans: 'IBM Plex Sans', 'Inter', system-ui, sans-serif;
+  --font-sans: 'Inter', 'IBM Plex Sans', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Type scale */
+  --text-xs:   11px;
+  --text-sm:   12px;
+  --text-base: 13px;
+  --text-md:   14px;
+  --text-lg:   16px;
+  --text-xl:   20px;
 
   /* Spacing scale */
   --spacing-xs: 4px;
@@ -85,8 +99,8 @@ html {
 
 body {
   font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--text-md);
+  line-height: 1.6;
   color: var(--text-primary);
   background: var(--background);
   min-height: 100vh;
@@ -169,6 +183,20 @@ pre {
   );
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* Primary action pulse animation for idle-state CTA */
+@keyframes ctaPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 var(--primary-action-glow);
+  }
+  50% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+.cta-pulse {
+  animation: ctaPulse 2.4s ease-in-out infinite;
 }
 
 /* Utility classes for design tokens */

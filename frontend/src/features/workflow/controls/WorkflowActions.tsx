@@ -43,7 +43,7 @@ export function WorkflowActions() {
             <Button
               variant="success"
               size="lg"
-              className="flex-[2]"
+              className="flex-[2] cta-pulse"
               onClick={analyzeGaps}
               disabled={!isConfigValid || isAnalyzing}
             >

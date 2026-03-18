@@ -77,7 +77,36 @@ notepad .env
 docker compose up --build
 ```
 
-### Option 2: Local Development (Frontend + Backend)
+### Option 2: Local Development (Recommended for daily work)
+
+For regular development, the simplest setup is now a single repo-root command:
+
+```powershell
+cd "d:\Generative AI Portfolio Projects\APOST"
+npm run dev
+```
+
+What it does:
+- Starts the FastAPI backend in a new PowerShell window
+- Starts the Vite frontend in the current window
+- Automatically opens the frontend in your browser
+- Shows backend connectivity in the app header with a green/red status badge
+
+First-time setup only:
+- Create the backend virtual environment and install Python dependencies
+- Install frontend dependencies
+
+```powershell
+cd "d:\Generative AI Portfolio Projects\APOST\backend"
+py -3.12 -m venv venv
+.\venv\Scripts\python.exe -m pip install --upgrade pip
+.\venv\Scripts\python.exe -m pip install -r requirements.txt
+
+cd "d:\Generative AI Portfolio Projects\APOST\frontend"
+npm install
+```
+
+### Option 3: Manual Local Development (Frontend + Backend)
 
 **Prerequisites:**
 - Node.js 20+
@@ -123,7 +152,7 @@ Open:
 - **Frontend UI**: `http://localhost:5173`
 - **Backend API docs**: `http://localhost:8000/api/docs`
 
-#### Windows (PowerShell) — Local dev copy/paste
+#### Windows (PowerShell) — Manual local dev copy/paste
 
 Open **two** PowerShell windows.
 

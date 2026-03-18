@@ -41,9 +41,9 @@ const buttonVariants = cva(
           hover:bg-[var(--danger)]/20 hover:border-[var(--danger)]/50
         `,
         success: `
-          bg-gradient-to-r from-[var(--teal)] to-[var(--cyan)]
+          bg-gradient-to-r from-[var(--primary-action)] to-[var(--cyan)]
           text-[var(--background)] font-bold
-          hover:shadow-lg hover:shadow-[var(--teal-soft)]
+          hover:shadow-lg hover:shadow-[var(--primary-action-glow)]
           hover:scale-[1.02]
         `,
       },
