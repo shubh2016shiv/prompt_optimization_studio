@@ -52,10 +52,12 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
     try:
         async with LLMClient(api_key=request.api_key) as client:
-            response_text = await client.call_anthropic_chat(
+            response_text = await client.call_chat(
+                provider=request.provider,
                 messages=messages,
                 system=system_prompt,
                 max_tokens=settings.max_tokens_chat,
+                model=request.model_id,
             )
 
         return ChatResponse(

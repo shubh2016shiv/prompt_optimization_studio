@@ -20,7 +20,7 @@
 **Frontend:**
 - React 18 + TypeScript
 - Vite (build tooling)
-- Tailwind CSS v4 + shadcn/ui
+- Tailwind CSS v4
 - Framer Motion (animations)
 - Zustand (state management)
 
@@ -30,174 +30,140 @@
 - Pydantic v2
 - HTTPX (async HTTP client)
 
+**Package management:**
+- [`uv`](https://docs.astral.sh/uv/) — fast Python package manager (replaces pip/venv)
+
 **Deployment:**
 - Docker (multi-stage build)
 - Docker Compose
 
+---
+
 ## Quick Start
 
-### Option 1: Docker (Recommended)
+> **Recommended for daily work:** Option 1 (local `uv`). The app shows a **green/red backend status badge** in the header so you always know if the API is reachable.
 
-```bash
-# From repo root (this folder)
-# 1) Create your env file
-cp .env.example .env
+---
 
-# 2) Add at least one API key in .env (recommended: ANTHROPIC_API_KEY)
+### Option 1: Local Development with `uv`
 
-# 3) Build + run
+#### Prerequisites (install once on your machine)
+
+- [Node.js 20+](https://nodejs.org/)
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) — Python package manager
+
+```powershell
+# Install uv (Windows)
+winget install --id=astral-sh.uv -e
+```
+
+---
+
+#### Backend — first-time setup
+
+```powershell
+cd "d:\Generative AI Portfolio Projects\APOST\backend"
+
+# 1) Create an isolated virtual environment
+uv venv --python 3.12 .venv
+
+# 2) Activate it
+.venv\Scripts\activate.bat
+
+# 3) Install Python dependencies
+uv pip install -r requirements.txt
+```
+
+> **If install fails with "Metadata field Name not found":**
+> ```powershell
+> uv cache clean
+> uv pip install -r requirements.txt
+> ```
+
+#### Backend — env file (run once)
+
+```powershell
+# Still inside backend/
+Copy-Item .env.example .env
+notepad .env
+```
+
+Set at least one LLM API key. Example for OpenAI:
+
+```env
+OPENAI_API_KEY=sk-proj-...
+```
+
+#### Backend — start
+
+```powershell
+cd "d:\Generative AI Portfolio Projects\APOST\backend"
+.venv\Scripts\activate.bat
+uv run -- python -m uvicorn app.main:app --reload --port 8000
+```
+
+Verify it's running:
+- **Health check**: `http://localhost:8000/api/health` → `{"status":"healthy"}`
+- **API docs**: `http://localhost:8000/api/docs`
+
+The app header will switch from **red → green** once the backend is reachable.
+
+---
+
+#### Frontend — first-time setup
+
+```powershell
+cd "d:\Generative AI Portfolio Projects\APOST\frontend"
+npm install
+```
+
+#### Frontend — start
+
+```powershell
+cd "d:\Generative AI Portfolio Projects\APOST\frontend"
+npm run dev -- --open
+```
+
+Frontend runs at `http://localhost:5173`. All `/api` calls are automatically proxied to `http://localhost:8000`.
+
+---
+
+### Option 2: Docker (containerised / production-like)
+
+Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) to be running.
+
+```powershell
+# From repo root
+Copy-Item .env.example .env
+notepad .env          # set at least one API key
+
 docker compose up --build
 ```
 
 Open:
-- **App UI (served by FastAPI)**: `http://localhost:8000`
+- **App UI**: `http://localhost:8000`
 - **API docs**: `http://localhost:8000/api/docs`
 - **Health**: `http://localhost:8000/api/health`
 
-#### Windows PowerShell note
+---
 
-If `cp` isn’t available, use:
+### Troubleshooting
 
-```powershell
-Copy-Item .env.example .env
-```
+| Problem | Fix |
+|---|---|
+| `uv pip install` fails with "Metadata field Name not found" | `uv cache clean` then retry |
+| Port 8000 already in use | `netstat -ano \| findstr :8000` → find PID → `taskkill /PID <pid> /F` |
+| Frontend shows red "Backend offline" badge | Backend is not running — start it (see above) |
+| CORS errors in browser console | Ensure `CORS_ORIGINS` in `backend/.env` includes `http://localhost:5173` |
+| `uv: command not found` | `winget install --id=astral-sh.uv -e` |
+| `python 3.12 not found` during `uv venv` | Run `py -0p` to see installed versions, use `--python 3.11` if needed |
 
-#### Windows (PowerShell) — Docker copy/paste
-
-Run these from the repo root:
-
-```powershell
-# 1) Create env file
-Copy-Item .env.example .env
-
-# 2) Edit .env and set at least one API key (recommended: ANTHROPIC_API_KEY)
-notepad .env
-
-# 3) Build + run (Docker Desktop must be running)
-docker compose up --build
-```
-
-### Option 2: Local Development (Recommended for daily work)
-
-For regular development, the simplest setup is now a single repo-root command:
-
-```powershell
-cd "d:\Generative AI Portfolio Projects\APOST"
-npm run dev
-```
-
-What it does:
-- Starts the FastAPI backend in a new PowerShell window
-- Starts the Vite frontend in the current window
-- Automatically opens the frontend in your browser
-- Shows backend connectivity in the app header with a green/red status badge
-
-First-time setup only:
-- Create the backend virtual environment and install Python dependencies
-- Install frontend dependencies
-
-```powershell
-cd "d:\Generative AI Portfolio Projects\APOST\backend"
-py -3.12 -m venv venv
-.\venv\Scripts\python.exe -m pip install --upgrade pip
-.\venv\Scripts\python.exe -m pip install -r requirements.txt
-
-cd "d:\Generative AI Portfolio Projects\APOST\frontend"
-npm install
-```
-
-### Option 3: Manual Local Development (Frontend + Backend)
-
-**Prerequisites:**
-- Node.js 20+
-- Python 3.12+
-- npm (or pnpm)
-
-You will run **two dev servers**:
-- **Backend**: FastAPI on `http://localhost:8000`
-- **Frontend**: Vite on `http://localhost:5173` (proxies `/api` → backend)
-
-**Backend:**
-```bash
-cd backend
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Create env file (recommended: keep backend env inside backend/)
-cp .env.example .env
-
-# Add at least one API key (recommended: ANTHROPIC_API_KEY)
-
-# Run the backend
-uvicorn app.main:app --reload --port 8000
-```
-
-**Frontend:**
-```bash
-cd frontend
-
-# Install dependencies
-npm install
-
-# Run the development server
-npm run dev
-```
-
-Open:
-- **Frontend UI**: `http://localhost:5173`
-- **Backend API docs**: `http://localhost:8000/api/docs`
-
-#### Windows (PowerShell) — Manual local dev copy/paste
-
-Open **two** PowerShell windows.
-
-**Terminal A (Backend):**
-
-```powershell
-cd "d:\Generative AI Portfolio Projects\APOST\backend"
-
-# Create + activate venv
-py -3.12 -m venv venv
-.\venv\Scripts\Activate.ps1
-
-# Install deps
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-
-# Create env file + set keys
-Copy-Item .env.example .env
-notepad .env
-
-# Run API
-python -m uvicorn app.main:app --reload --port 8000
-```
-
-**Terminal B (Frontend):**
-
-```powershell
-cd "d:\Generative AI Portfolio Projects\APOST\frontend"
-npm install
-npm run dev
-```
-
-Then open:
-- **Frontend UI**: `http://localhost:5173`
-- **Backend (API + docs)**: `http://localhost:8000/api/docs`
-
-#### Troubleshooting (local)
-
-- **CORS errors**: ensure `CORS_ORIGINS` includes `http://localhost:5173` (see `backend/.env.example`).
-- **Backend not reachable from frontend**: Vite is configured to proxy `/api` to `http://localhost:8000` in `frontend/vite.config.ts`.
+---
 
 ## Usage
 
 1. **Enter Your Prompt** — Paste your raw prompt in the left panel
-2. **Select Target Model** — Choose provider (Anthropic/OpenAI/Google) and model
+2. **Select Target Model** — Choose provider (Anthropic / OpenAI / Google) and model
 3. **Add API Key** — Enter your API key for the selected provider
 4. **Analyse Gaps** — Click "🔍 Analyse Gaps First" for TCRTE coverage audit
 5. **Answer Questions** — Fill in the gap interview questions (optional)
@@ -216,6 +182,7 @@ APOST/
 │   │   │   └── prompt_builders/ # Prompt construction
 │   │   ├── config.py            # Settings management
 │   │   └── main.py              # FastAPI application
+│   ├── .env.example
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/
@@ -248,20 +215,21 @@ APOST/
 
 ## Environment Variables
 
+API keys are **not** set in `.env`. Each user enters their own key directly in the UI - it is sent per-request and never stored on the server.
+
 | Variable | Description | Default |
-|----------|-------------|---------|
-| `ANTHROPIC_API_KEY` | Anthropic API key | - |
-| `OPENAI_API_KEY` | OpenAI API key | - |
-| `GOOGLE_API_KEY` | Google AI API key | - |
-| `DEBUG` | Enable debug mode | `false` |
-| `CORS_ORIGINS` | Allowed origins | `localhost` |
-| `OPTIMIZER_MODEL` | Internal model for optimization | `claude-sonnet-4-20250514` |
+|----------|-------------|----------|
+| `DEBUG` | Enable verbose debug output | `false` |
+| `CORS_ORIGINS` | Comma-separated allowed origins | `http://localhost:5173,...` |
+| `MAX_TOKENS_GAP_ANALYSIS` | Token budget for gap analysis | `1500` |
+| `MAX_TOKENS_OPTIMIZATION` | Token budget for optimisation | `4096` |
+| `MAX_TOKENS_CHAT` | Token budget per chat reply | `2048` |
 
 ## Docker Notes
 
 - **Single-container runtime**: The `Dockerfile` builds the frontend and serves it from FastAPI as static files (`/`), with APIs under `/api/*`.
 - **Development vs production**:
-  - Local dev uses Vite (`:5173`) + FastAPI (`:8000`) separately.
+  - Local dev uses Vite (`:5173`) + FastAPI (`:8000`) separately with hot reload.
   - Docker runs a single production-like service on `:8000`.
 
 ## Contributing
@@ -280,5 +248,5 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 - TCRTE Framework inspired by Anthropic's prompt engineering guidelines
 - CoRe (Context Repetition) technique from multi-hop reasoning research
-- RAL-Writer restate technique for long-context optimization
+- RAL-Writer restate technique for long-context optimisation
 - TextGrad iterative constraint hardening approach

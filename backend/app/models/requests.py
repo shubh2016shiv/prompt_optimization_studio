@@ -115,6 +115,14 @@ class ChatRequest(BaseModel):
         default=None,
         description="Full session context (raw_prompt, variants, gap_data, answers, etc.)",
     )
+    provider: str = Field(
+        default="anthropic",
+        description="The LLM provider to use (anthropic, openai, google)",
+    )
+    model_id: str = Field(
+        default="claude-sonnet-4-6",
+        description="The model ID to use for chat",
+    )
     api_key: str = Field(
         ...,
         min_length=1,

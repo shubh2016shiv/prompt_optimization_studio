@@ -50,6 +50,8 @@ def build_optimizer_prompt(
     is_reasoning_model: bool,
     answers: Optional[dict[str, str]],
     gap_data: Optional[dict[str, Any]],
+    core_k: int = 2,
+    few_shot_examples: Optional[list[Any]] = None,
 ) -> str:
     """
     Build the optimization prompt for generating three prompt variants.
@@ -64,6 +66,8 @@ def build_optimizer_prompt(
         is_reasoning_model: Whether the target is a reasoning model.
         answers: Optional user answers to gap interview questions.
         gap_data: Optional gap analysis data from previous step.
+        core_k: CoRe repetition depth from hop_counter (optimization route).
+        few_shot_examples: kNN-retrieved corpus entries for cot_ensemble (knn_retriever).
 
     Returns:
         The complete meta-prompt for optimization.
@@ -108,8 +112,10 @@ def build_optimizer_prompt(
     # Build technique blocks
     core_block = ""
     if use_core:
-        core_block = """<core_technique>
-APPLY CONTEXT REPETITION (CoRe): For multi-hop reasoning, repeat the most critical context segment at the start AND end of the user prompt. Mark repetitions clearly.
+        core_block = f"""<core_technique>
+APPLY CONTEXT REPETITION (CoRe): For multi-hop reasoning, place the most critical context in
+approximately {core_k} attention-favorable positions (at minimum at the START and END of the
+user prompt). Mark repetitions clearly.
 </core_technique>"""
 
     ral_block = ""
@@ -131,6 +137,26 @@ APPLY RAL-WRITER RESTATE: Identify instructions likely to be "lost in the middle
     variables_block = ""
     if input_variables and input_variables.strip():
         variables_block = f"<input_variables>{input_variables}</input_variables>"
+
+    few_shot_block = ""
+    if few_shot_examples:
+        parts: list[str] = []
+        for i, ex in enumerate(few_shot_examples, 1):
+            if isinstance(ex, dict):
+                parts.append(
+                    f'<example index="{i}">\n'
+                    f"<raw>{ex.get('raw_prompt', '')}</raw>\n"
+                    f"<optimized>{ex.get('optimized_system_prompt', '')}</optimized>\n"
+                    f"<trace>{ex.get('reasoning_trace', '')}</trace>\n"
+                    "</example>"
+                )
+            else:
+                parts.append(f'<example index="{i}">{ex!s}</example>')
+        few_shot_block = (
+            "<retrieved_few_shot_demonstrations>\n"
+            + "\n".join(parts)
+            + "\n</retrieved_few_shot_demonstrations>\n"
+        )
 
     # Build prefill instruction
     prefill_instruction = ""
@@ -158,6 +184,7 @@ For the Advanced variant, include a prefill_suggestion field with the ideal firs
 </failure_modes>
 
 <raw_prompt>{raw_prompt}</raw_prompt>
+{few_shot_block}
 {variables_block}
 {answers_block}
 

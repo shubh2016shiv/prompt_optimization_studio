@@ -50,6 +50,8 @@ export interface ChatRequest {
   message: string;
   history: ChatMessage[];
   context?: ChatContext | null;
+  provider: string;
+  model_id: string;
   api_key: string;
 }
 

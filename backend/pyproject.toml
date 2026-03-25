@@ -1,0 +1,41 @@
+[project]
+name = "apost-backend"
+version = "4.0.0"
+description = "APOST v4 — AI Prompt Optimization & Structuring Tool (Backend)"
+requires-python = ">=3.11"
+
+dependencies = [
+    # FastAPI and ASGI server
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+
+    # HTTP client for LLM API calls (used by all providers + new scoring/embedding services)
+    "httpx>=0.26.0",
+
+    # Pydantic for data validation
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+
+    # CORS and security
+    "python-multipart>=0.0.6",
+
+    # Environment variables
+    "python-dotenv>=1.0.0",
+
+    # TextGrad — iterative textual backpropagation for real prompt optimization loops
+    # Paper: "TextGrad: Automatic 'Differentiation' via Text" (Stanford, 2024)
+    "textgrad>=0.1.0",
+
+    # NumPy — cosine similarity math for Medprompt kNN retrieval
+    # Used with Gemini Embedding API vectors (no local model needed)
+    "numpy>=1.26.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "python-dotenv>=1.2.2",
+]
+
+

@@ -117,6 +117,8 @@ export function useChatSession() {
         message: trimmedText,
         history: historyForApi.slice(0, -1), // Exclude the message we just added
         context: buildContext(),
+        provider: providerId,
+        model_id: model?.id ?? 'claude-sonnet-4-6',
         api_key: apiKey,
       });
 

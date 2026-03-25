@@ -4,7 +4,8 @@ Gap analysis prompt builder.
 Constructs the meta-prompt for TCRTE coverage auditing.
 """
 
-from typing import Optional
+import json
+from typing import Any, Optional
 
 from app.models.providers import PROVIDERS
 
@@ -16,6 +17,7 @@ def build_gap_analysis_prompt(
     provider: str,
     model_label: str,
     is_reasoning_model: bool,
+    precomputed_tcrte: Optional[dict[str, Any]] = None,
 ) -> str:
     """
     Build the gap analysis prompt for TCRTE coverage auditing.
@@ -27,6 +29,9 @@ def build_gap_analysis_prompt(
         provider: The LLM provider key (anthropic, openai, google).
         model_label: The target model's display label.
         is_reasoning_model: Whether the target is a reasoning model.
+        precomputed_tcrte: Optional rubric scores from score_tcrte (OpenAI nano, temp=0).
+            When set, injected as ground truth so the model generates questions and
+            recommendations without re-inventing unstable scores.
 
     Returns:
         The complete meta-prompt for gap analysis.
@@ -40,6 +45,21 @@ def build_gap_analysis_prompt(
         else "No input variables declared."
     )
 
+    ground_truth_block = ""
+    if precomputed_tcrte:
+        # Strip overall_score from the JSON snippet — it is reported separately at top level.
+        payload = {k: v for k, v in precomputed_tcrte.items() if k != "overall_score"}
+        ground_truth_json = json.dumps(payload, indent=2)
+        overall = precomputed_tcrte.get("overall_score", 0)
+        ground_truth_block = f"""
+PRE-COMPUTED TCRTE SCORES (GROUND TRUTH from a deterministic rubric model — DO NOT change these numbers):
+Overall (average of five dimensions): {overall}
+Per-dimension JSON (copy the "score" and "note" values EXACTLY into your response "tcrte" object for each key task, context, role, tone, execution):
+{ground_truth_json}
+
+You may still set "status" (good|weak|missing) consistently with each score. Your job is gap-interview questions, complexity, recommended_techniques, and auto_enrichments — not re-scoring.
+"""
+
     return f"""You are an expert prompt engineer. Perform a rapid TCRTE coverage audit on this raw prompt.
 
 TCRTE Dimensions:
@@ -52,7 +72,7 @@ TCRTE Dimensions:
 Target model: {provider_label} {model_label} ({model_type})
 Task type: {task_type}
 {variables_line}
-
+{ground_truth_block}
 Raw prompt to audit:
 \"\"\"
 {raw_prompt}
