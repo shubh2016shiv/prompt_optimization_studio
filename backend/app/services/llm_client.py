@@ -212,9 +212,14 @@ class LLMClient:
 
         payload = {
             "model": model,
-            "max_tokens": max_tokens,
             "messages": full_messages,
         }
+        
+        # Reasoning models (o1, o3, o4 series) use max_completion_tokens instead of max_tokens
+        if model.startswith("o1") or model.startswith("o3") or model.startswith("o4"):
+            payload["max_completion_tokens"] = max_tokens
+        else:
+            payload["max_tokens"] = max_tokens
 
         headers = {
             "Content-Type": "application/json",
