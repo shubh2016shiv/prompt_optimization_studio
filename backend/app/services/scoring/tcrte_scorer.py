@@ -1,5 +1,5 @@
 """
-TCRTE Coverage Scorer — Structured Rubric Audit via gpt-4.1-nano at temperature=0
+TCRTE Coverage Scorer — Structured Rubric Audit via a fast OpenAI model at temperature=0
 
 Every prompt has five dimensions that determine whether the LLM receiving it knows
 enough to do a good job: Task (what to produce and how success is measured), Context
@@ -16,13 +16,18 @@ Task=80 the next, purely due to sampling randomness. That instability made the
 quality.
 
 The fix here is to separate scoring from generation entirely. This module sends the
-raw prompt to gpt-4.1-nano — the cheapest confirmed-working OpenAI model — using
-temperature=0. Temperature=0 forces greedy decoding: at every token position the
+raw prompt to the configured OpenAI sub-task model (see Settings.openai_subtask_model)
+using temperature=0. Temperature=0 forces greedy decoding: at every token position the
 model selects the single highest-probability token without sampling. Given identical
 input and a fixed model version, this produces identical output on every call.
 Combined with a rigid per-dimension rubric that replaces vague "judge this" prompts
 with binary yes/no checklists ("+30 if X is present"), the scores become stable and
 meaningful rather than variable and arbitrary.
+
+The **overall** TCRTE score is not taken from the model: after dimension scores are
+parsed, it is recomputed in Python as a weighted average (Task and Execution
+weighted higher per APOST_v4_Documentation.md §3.3), using weights from
+`get_settings().tcrte_dimension_weights`.
 
 When to use this module: always, as the first step in the gap analysis pipeline.
 It runs before the main LLM call and injects its scores as ground truth into the
@@ -33,12 +38,11 @@ Google-only session), the route falls back to the legacy behaviour gracefully. T
 module raises a clear exception on failure so the route can catch and recover.
 
 Cost per call: approximately 2,000-2,500 input tokens (prompt + rubric system) and
-~250 output tokens, all from gpt-4.1-nano which is the lowest-cost chat model
-available on this account. Latency is typically 800-1,400ms.
+~250 output tokens, from the configured nano-class model. Latency is typically
+800-1,400ms.
 
 Quality impact: scoring consistency improves from ±25 points (observed variance with
-the old approach) to ±0 points for identical inputs. The rubric weights match the
-documented APOST claim that Task and Execution are the most critical dimensions.
+the old approach) to ±0 points for identical inputs.
 
 Before this module:
   "Analyse this document" → Task score varies 40-75 across calls → UI gauge jumps
@@ -51,18 +55,42 @@ After this module:
 
 import json
 import logging
+from typing import Any
 
 import httpx
 
+from app.config import get_settings
+
 logger = logging.getLogger(__name__)
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Rubric system prompt — binary additive for each dimension.
-# Points are calibrated so a fully-specified dimension always reaches 100 and a
-# minimally-specified dimension always stays below 35. Weights give Task and
-# Execution a slightly higher ceiling, matching the APOST documentation claim.
-# ──────────────────────────────────────────────────────────────────────────────
-_TCRTE_RUBRIC_SYSTEM = """
+_DIM_ORDER = ("task", "context", "role", "tone", "execution")
+
+
+def compute_weighted_tcrte_overall(
+    scores_by_dimension: dict[str, int],
+    weights: dict[str, float],
+) -> int:
+    """
+    Weighted TCRTE overall on 0–100 from per-dimension integer scores.
+
+    Missing dimensions are treated as 0 contribution (weight still applied).
+    """
+    total = 0.0
+    for dim in _DIM_ORDER:
+        w = weights.get(dim, 0.0)
+        total += w * float(scores_by_dimension.get(dim, 0))
+    return max(0, min(100, round(total)))
+
+
+def _build_tcrte_rubric_system(
+    wt: float,
+    wc: float,
+    wr: float,
+    wto: float,
+    we: float,
+) -> str:
+    """Rubric text with per-dimension checklist; overall is computed server-side."""
+    return f"""
 You are a precision prompt auditor applying the TCRTE framework. Score the user's
 prompt on exactly 5 dimensions. For each dimension check the EXACT listed signals and
 add the stated points. Do not invent additional criteria.
@@ -109,19 +137,27 @@ EXECUTION (E — max 100):
         no preamble, no apologies, no markdown if plain text is required)
 
 Return ONLY valid JSON with no surrounding markdown fences or explanation:
-{
-  "task":      {"score": 0, "note": "one sentence explaining the score"},
-  "context":   {"score": 0, "note": "one sentence explaining the score"},
-  "role":      {"score": 0, "note": "one sentence explaining the score"},
-  "tone":      {"score": 0, "note": "one sentence explaining the score"},
-  "execution": {"score": 0, "note": "one sentence explaining the score"},
+{{
+  "task":      {{"score": 0, "note": "one sentence explaining the score"}},
+  "context":   {{"score": 0, "note": "one sentence explaining the score"}},
+  "role":      {{"score": 0, "note": "one sentence explaining the score"}},
+  "tone":      {{"score": 0, "note": "one sentence explaining the score"}},
+  "execution": {{"score": 0, "note": "one sentence explaining the score"}},
   "overall_score": 0
-}
-overall_score = round((task + context + role + tone + execution) / 5).
+}}
+Set "overall_score" to 0. The API recomputes the overall from dimension scores using:
+round({wt}*task + {wc}*context + {wr}*role + {wto}*tone + {we}*execution) on the integer
+dimension scores (each 0–100).
 """.strip()
 
-_OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
-_SCORE_MODEL = "gpt-4.1-nano"
+
+def _apply_weighted_overall(scores: dict[str, Any], weights: dict[str, float]) -> None:
+    """Mutates scores: sets overall_score from weighted dimension scores."""
+    by_dim: dict[str, int] = {}
+    for dim in _DIM_ORDER:
+        if dim in scores and isinstance(scores[dim], dict) and "score" in scores[dim]:
+            by_dim[dim] = int(scores[dim]["score"])
+    scores["overall_score"] = compute_weighted_tcrte_overall(by_dim, weights)
 
 
 async def score_tcrte(raw_prompt: str, api_key: str) -> dict:
@@ -129,24 +165,35 @@ async def score_tcrte(raw_prompt: str, api_key: str) -> dict:
     Score a prompt against the TCRTE rubric.
 
     Returns a dict with keys: task, context, role, tone, execution (each a dict
-    with 'score' int and 'note' str), plus overall_score int.
+    with 'score' int and 'note' str), plus overall_score int (weighted; computed
+    in Python from dimensions).
 
     Raises httpx.HTTPStatusError on non-2xx responses.
     Raises json.JSONDecodeError if the model returns malformed JSON (rare at temp=0).
     """
+    settings = get_settings()
+    weights = settings.tcrte_dimension_weights
+    rubric = _build_tcrte_rubric_system(
+        weights["task"],
+        weights["context"],
+        weights["role"],
+        weights["tone"],
+        weights["execution"],
+    )
+    cap = settings.tcrte_score_max_prompt_chars
     payload = {
-        "model": _SCORE_MODEL,
-        "temperature": 0,       # greedy decoding — same input ⟹ same output every run
-        "max_tokens": 350,
+        "model": settings.openai_subtask_model,
+        "temperature": 0,  # greedy decoding — same input ⟹ same output every run
+        "max_tokens": settings.tcrte_score_max_tokens,
         "messages": [
-            {"role": "system", "content": _TCRTE_RUBRIC_SYSTEM},
-            {"role": "user",   "content": raw_prompt[:2000]},  # safety cap
+            {"role": "system", "content": rubric},
+            {"role": "user", "content": raw_prompt[:cap]},
         ],
     }
 
-    async with httpx.AsyncClient(timeout=20.0) as client:
+    async with httpx.AsyncClient(timeout=settings.tcrte_score_timeout_seconds) as client:
         response = await client.post(
-            _OPENAI_CHAT_URL,
+            settings.openai_chat_completions_url,
             headers={"Authorization": f"Bearer {api_key}"},
             json=payload,
         )
@@ -161,16 +208,12 @@ async def score_tcrte(raw_prompt: str, api_key: str) -> dict:
     scores = json.loads(raw_content)
 
     # Defensive normalisation — clamp scores to [0, 100]
-    for dim in ("task", "context", "role", "tone", "execution"):
-        if dim in scores and "score" in scores[dim]:
+    for dim in _DIM_ORDER:
+        if dim in scores and isinstance(scores[dim], dict) and "score" in scores[dim]:
             scores[dim]["score"] = max(0, min(100, int(scores[dim]["score"])))
 
-    if "overall_score" in scores:
-        scores["overall_score"] = max(0, min(100, int(scores["overall_score"])))
-    else:
-        # Recalculate if missing
-        dims = [scores[d]["score"] for d in ("task", "context", "role", "tone", "execution") if d in scores]
-        scores["overall_score"] = round(sum(dims) / len(dims)) if dims else 0
+    # Canonical overall: weighted average in Python (ignores model overall_score)
+    _apply_weighted_overall(scores, weights)
 
     logger.debug("TCRTE scores for prompt (len=%d): %s", len(raw_prompt), scores)
     return scores
