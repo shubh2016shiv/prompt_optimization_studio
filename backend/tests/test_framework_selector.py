@@ -118,6 +118,19 @@ def test_select_framework_textgrad_only_for_complex_low_tcrte():
     assert "very low TCRTE" in reason
 
 
+def test_select_framework_score_50_avoids_textgrad():
+    framework, reason = select_framework(
+        is_reasoning_model=False,
+        task_type="unknown_task",
+        complexity="complex",
+        tcrte_overall_score=50,
+        provider="openai",
+        recommended_techniques=[]
+    )
+    assert framework == "progressive"
+    assert "lower-cost default" in reason
+
+
 def test_select_framework_default_unmatched_goes_kernel():
     """
     Unmatched non-complex tasks should default to kernel (lower-cost fallback).

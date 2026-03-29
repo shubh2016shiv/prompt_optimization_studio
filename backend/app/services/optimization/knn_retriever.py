@@ -54,6 +54,8 @@ from typing import Any
 import httpx
 import numpy as np
 
+from app.observability.usage_tracking import record_usage
+
 from .few_shot_corpus import CorpusEntry, get_corpus_for_task, CORPUS
 
 logger = logging.getLogger(__name__)
@@ -91,7 +93,18 @@ async def _embed_text(text: str, api_key: str) -> np.ndarray:
         )
         response.raise_for_status()
 
-    values = response.json()["embedding"]["values"]
+    response_payload = response.json()
+    usage = response_payload.get("usageMetadata", {})
+    record_usage(
+        prompt_tokens=(
+            usage.get("promptTokenCount", 0)
+            or usage.get("totalTokenCount", 0)
+        ),
+        completion_tokens=0,
+        call_count=1,
+    )
+
+    values = response_payload["embedding"]["values"]
     return np.array(values, dtype=np.float32)
 
 

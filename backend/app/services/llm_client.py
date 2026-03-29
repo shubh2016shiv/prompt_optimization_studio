@@ -15,6 +15,9 @@ from typing import Optional
 
 import httpx
 
+from app.observability.langfuse_support import observe, update_current_generation
+from app.observability.usage_tracking import record_usage
+
 
 class LLMClientError(Exception):
     """Raised when an LLM API call fails."""
@@ -39,6 +42,11 @@ class LLMClient:
         self.api_key = api_key
         self.timeout = timeout
         self._client: Optional[httpx.AsyncClient] = None
+        self.prompt_tokens_used = 0
+        self.completion_tokens_used = 0
+        self.call_count = 0
+        self._last_prompt_tokens = 0
+        self._last_completion_tokens = 0
 
     async def __aenter__(self):
         self._client = httpx.AsyncClient(timeout=self.timeout)
@@ -53,6 +61,7 @@ class LLMClient:
     # Public dispatchers — used by all three route handlers
     # ------------------------------------------------------------------
 
+    @observe(as_type="generation", capture_input=False, capture_output=False)
     async def call(
         self,
         provider: str,
@@ -76,12 +85,16 @@ class LLMClient:
             The model's response text.
         """
         if provider == "openai":
-            return await self._call_openai(prompt, max_tokens, model, system, temperature)
+            response_text = await self._call_openai(prompt, max_tokens, model, system, temperature)
         elif provider == "google":
-            return await self._call_google(prompt, max_tokens, model, system, temperature)
+            response_text = await self._call_google(prompt, max_tokens, model, system, temperature)
         else:
-            return await self._call_anthropic(prompt, max_tokens, model, system, temperature)
+            response_text = await self._call_anthropic(prompt, max_tokens, model, system, temperature)
 
+        self._update_langfuse_generation(model=model, provider=provider)
+        return response_text
+
+    @observe(as_type="generation", capture_input=False, capture_output=False)
     async def call_chat(
         self,
         provider: str,
@@ -104,11 +117,14 @@ class LLMClient:
             The model's response text.
         """
         if provider == "openai":
-            return await self._call_openai_chat(messages, system, max_tokens, model)
+            response_text = await self._call_openai_chat(messages, system, max_tokens, model)
         elif provider == "google":
-            return await self._call_google_chat(messages, system, max_tokens, model)
+            response_text = await self._call_google_chat(messages, system, max_tokens, model)
         else:
-            return await self._call_anthropic_chat(messages, system, max_tokens, model)
+            response_text = await self._call_anthropic_chat(messages, system, max_tokens, model)
+
+        self._update_langfuse_generation(model=model, provider=provider)
+        return response_text
 
     # ------------------------------------------------------------------
     # Anthropic
@@ -173,6 +189,14 @@ class LLMClient:
             raise LLMClientError(f"Anthropic API error: {msg}", status_code=response.status_code)
 
         data = response.json()
+        self._record_usage(
+            prompt_tokens=(
+                data.get("usage", {}).get("input_tokens", 0)
+                + data.get("usage", {}).get("cache_creation_input_tokens", 0)
+                + data.get("usage", {}).get("cache_read_input_tokens", 0)
+            ),
+            completion_tokens=data.get("usage", {}).get("output_tokens", 0),
+        )
         return "".join(
             block.get("text", "")
             for block in data.get("content", [])
@@ -264,6 +288,11 @@ class LLMClient:
             raise LLMClientError(f"OpenAI API error: {msg}", status_code=response.status_code)
 
         data = response.json()
+        usage = data.get("usage", {})
+        self._record_usage(
+            prompt_tokens=usage.get("prompt_tokens", 0),
+            completion_tokens=usage.get("completion_tokens", 0),
+        )
         return data["choices"][0]["message"]["content"]
 
     # ------------------------------------------------------------------
@@ -341,6 +370,11 @@ class LLMClient:
             raise LLMClientError(f"Google API error: {msg}", status_code=response.status_code)
 
         data = response.json()
+        usage = data.get("usageMetadata", {})
+        self._record_usage(
+            prompt_tokens=usage.get("promptTokenCount", 0),
+            completion_tokens=usage.get("candidatesTokenCount", 0),
+        )
         try:
             return data["candidates"][0]["content"]["parts"][0]["text"]
         except (KeyError, IndexError) as exc:
@@ -355,3 +389,43 @@ class LLMClient:
             raise LLMClientError(
                 "Client not initialised. Use 'async with LLMClient(...) as client:'"
             )
+
+    def _record_usage(
+        self,
+        *,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        call_count: int = 1,
+    ) -> None:
+        self._last_prompt_tokens = max(0, int(prompt_tokens))
+        self._last_completion_tokens = max(0, int(completion_tokens))
+        self.prompt_tokens_used += max(0, int(prompt_tokens))
+        self.completion_tokens_used += max(0, int(completion_tokens))
+        self.call_count += max(0, int(call_count))
+        record_usage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            call_count=call_count,
+        )
+
+    def _update_langfuse_generation(self, *, model: str, provider: str) -> None:
+        update_current_generation(
+            model=model,
+            metadata={
+                "provider": provider,
+                "llm_call_count": self.call_count,
+            },
+            usage_details={
+                "input": self._last_prompt_tokens,
+                "output": self._last_completion_tokens,
+            },
+        )
+
+    def get_usage_snapshot(self) -> dict[str, int]:
+        """Return the cumulative usage for this client session."""
+        return {
+            "llm_call_count": self.call_count,
+            "prompt_tokens": self.prompt_tokens_used,
+            "completion_tokens": self.completion_tokens_used,
+            "total_tokens": self.prompt_tokens_used + self.completion_tokens_used,
+        }

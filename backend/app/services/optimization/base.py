@@ -57,6 +57,7 @@ from uuid import uuid4
 
 import structlog
 
+from app.observability.usage_tracking import get_current_usage_snapshot
 from app.models.requests import OptimizationRequest
 from app.models.responses import (
     OptimizationRunMetadata,
@@ -66,6 +67,19 @@ from app.models.responses import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def _sync_run_usage_metadata(response: OptimizationResponse) -> None:
+    """Project the current route-scoped usage totals into run metadata."""
+    if response.run_metadata is None:
+        return
+
+    usage_snapshot = get_current_usage_snapshot()
+    if usage_snapshot is None:
+        return
+
+    response.run_metadata.llm_call_count = usage_snapshot.llm_call_count
+    response.run_metadata.estimated_prompt_tokens = usage_snapshot.prompt_tokens
 
 
 class BaseOptimizerStrategy(ABC):
@@ -180,6 +194,7 @@ class BaseOptimizerStrategy(ABC):
             target_model=target_model or "unknown",
             timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         )
+        _sync_run_usage_metadata(response)
         structlog.contextvars.bind_contextvars(run_id=run_id, framework=response.run_metadata.framework)
         logger.info(
             "optimize.run_metadata_initialized",
@@ -338,6 +353,7 @@ class BaseOptimizerStrategy(ABC):
         await asyncio.gather(
             *(_critique_and_enhance_single_variant(idx) for idx in evaluated_variant_indices)
         )
+        _sync_run_usage_metadata(response)
         logger.info(
             "optimize.quality_gate_completed",
             run_id=run_id,

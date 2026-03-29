@@ -24,8 +24,8 @@ What is TCRTE?
 Selection philosophy:
   - Prefer specialist frameworks when a clear rule matches (reasoning models,
     QA/multi-doc, complex planning, complex reasoning).
-  - Reserve TextGrad (iterative hardening) for truly complex prompts with very
-    low TCRTE (< 40).
+  - Reserve TextGrad (iterative hardening) for truly complex prompts with
+    materially weak TCRTE (< 50).
   - For everything else, choose a lower-cost default (kernel or progressive).
 
 Return:
@@ -76,7 +76,7 @@ def select_framework(
             f"Complex {task_type} task - CoT Ensemble injects kNN-retrieved few-shot reasoning traces (Medprompt pattern) to anchor step quality.",
         )
 
-    if complexity == "complex" and tcrte_overall_score < 40:
+    if complexity == "complex" and tcrte_overall_score < 50:
         return (
             "textgrad",
             f"Complex task with very low TCRTE ({tcrte_overall_score}/100) - TextGrad iterative hardening selected for recovery.",

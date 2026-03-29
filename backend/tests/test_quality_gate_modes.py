@@ -6,6 +6,7 @@ from app.models.responses import (
     PromptVariant,
     VariantTCRTEScores,
 )
+from app.observability.usage_tracking import UsageSnapshot, bind_usage_snapshot, record_usage
 from app.services.evaluation.critique_result import CritiqueResult, DimensionScores
 from app.services.optimization.base import BaseOptimizerStrategy
 
@@ -227,3 +228,33 @@ async def test_quality_gate_exception_sets_failed_status(monkeypatch):
     assert refined.run_metadata.framework == "kernel"
     assert refined.run_metadata.target_model == "claude-sonnet-4-6"
     assert len(refined.run_metadata.raw_prompt_hash) == 64
+
+
+@pytest.mark.asyncio
+async def test_run_metadata_includes_route_usage(monkeypatch):
+    strategy = DummyStrategy()
+    response = _build_response()
+
+    async def fail_if_called(*args, **kwargs):
+        raise AssertionError("Critique should not run when quality_gate_mode='off'")
+
+    monkeypatch.setattr("app.services.llm_client.LLMClient", FakeLLMClient)
+    monkeypatch.setattr(
+        "app.services.evaluation.prompt_quality_critic.PromptQualityCritic.critique_prompt",
+        fail_if_called,
+    )
+
+    usage_snapshot = UsageSnapshot()
+    with bind_usage_snapshot(usage_snapshot):
+        record_usage(prompt_tokens=42, completion_tokens=8, call_count=3)
+        refined = await strategy._refine_variants_with_quality_critique(
+            response=response,
+            raw_prompt="raw",
+            task_type="reasoning",
+            api_key="dummy",
+            quality_gate_mode="off",
+        )
+
+    assert refined.run_metadata is not None
+    assert refined.run_metadata.llm_call_count == 3
+    assert refined.run_metadata.estimated_prompt_tokens == 42

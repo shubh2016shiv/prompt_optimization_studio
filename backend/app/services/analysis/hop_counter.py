@@ -58,6 +58,8 @@ import logging
 
 import httpx
 
+from app.observability.usage_tracking import record_usage
+
 logger = logging.getLogger(__name__)
 
 _OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
@@ -103,7 +105,15 @@ async def count_reasoning_hops(raw_prompt: str, api_key: str) -> int:
             )
             response.raise_for_status()
 
-        content = response.json()["choices"][0]["message"]["content"].strip()
+        response_payload = response.json()
+        usage = response_payload.get("usage", {})
+        record_usage(
+            prompt_tokens=usage.get("prompt_tokens", 0),
+            completion_tokens=usage.get("completion_tokens", 0),
+            call_count=1,
+        )
+
+        content = response_payload["choices"][0]["message"]["content"].strip()
         hops = json.loads(content).get("hops", 2)
         bounded = max(2, min(int(hops), 5))  # always in [2, 5]
         logger.debug("CoRe hop count for prompt (len=%d): k=%d", len(raw_prompt), bounded)

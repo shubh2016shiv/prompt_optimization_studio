@@ -181,6 +181,16 @@ class OptimizationRunMetadata(BaseModel):
     judge_model: str = Field(..., description="Model used by the internal quality judge.")
     target_model: str = Field(..., description="User-selected target model for optimization.")
     timestamp: str = Field(..., description="UTC ISO8601 timestamp for the run.")
+    llm_call_count: int = Field(
+        default=0,
+        ge=0,
+        description="Total number of LLM or embedding API calls made during this optimization request.",
+    )
+    estimated_prompt_tokens: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Estimated total input tokens counted across calls for this optimization request.",
+    )
 
 
 class OptimizationResponse(BaseModel):
