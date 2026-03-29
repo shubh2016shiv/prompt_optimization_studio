@@ -270,7 +270,7 @@ class OptimizationJobCreatedResponse(BaseModel):
     """Response returned when an asynchronous optimization job is created."""
 
     job_id: str = Field(..., description="Unique job identifier for polling and result retrieval.")
-    status: Literal["queued", "running", "succeeded", "failed"] = Field(
+    status: Literal["queued", "running", "succeeded", "failed", "cancelled"] = Field(
         ...,
         description="Current lifecycle status for the job.",
     )
@@ -289,7 +289,7 @@ class OptimizationJobStatusResponse(BaseModel):
     """Status payload for an asynchronous optimization job."""
 
     job_id: str = Field(..., description="Unique job identifier.")
-    status: Literal["queued", "running", "succeeded", "failed"] = Field(
+    status: Literal["queued", "running", "succeeded", "failed", "cancelled"] = Field(
         ...,
         description="Current lifecycle status for the job.",
     )

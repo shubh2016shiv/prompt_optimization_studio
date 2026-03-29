@@ -33,6 +33,15 @@ def _base_payload() -> dict:
     }
 
 
+def _payload_with_large_evaluation_dataset(case_count: int) -> dict:
+    payload = _base_payload()
+    payload["evaluation_dataset"] = [
+        {"input": f"case-{index}", "expected_output": f"expected-{index}"}
+        for index in range(case_count)
+    ]
+    return payload
+
+
 def _build_response() -> OptimizationResponse:
     return OptimizationResponse(
         analysis=OptimizationAnalysis(
@@ -109,3 +118,32 @@ def test_get_optimization_job_result_returns_optimization_payload(client, monkey
     response = client.get("/api/optimize/jobs/job-123/result")
     assert response.status_code == 200
     assert response.json()["analysis"]["framework_applied"] == "kernel"
+
+
+def test_cancel_optimization_job_returns_cancelled_status(client, monkeypatch):
+    async def fake_cancel_job(job_id: str):
+        return OptimizationJobStatusResponse(
+            job_id=job_id,
+            status="cancelled",
+            created_at="2026-03-29T00:00:00Z",
+            updated_at="2026-03-29T00:01:00Z",
+            current_phase="cancelled",
+            request_id="request-123",
+            trace_id="trace-123",
+            run_id=None,
+            error_message="cancelled_by_user",
+        )
+
+    monkeypatch.setattr(app.state.optimization_job_service, "cancel_job", fake_cancel_job)
+    response = client.post("/api/optimize/jobs/job-123/cancel")
+    assert response.status_code == 200
+    assert response.json()["status"] == "cancelled"
+
+
+def test_create_optimization_job_rejects_requests_over_evaluation_budget(client):
+    response = client.post(
+        "/api/optimize/jobs",
+        json=_payload_with_large_evaluation_dataset(case_count=101),
+    )
+    assert response.status_code == 422
+    assert "maximum is 100" in response.json()["detail"]

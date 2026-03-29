@@ -25,7 +25,10 @@ import structlog
 from app.config import get_settings
 from app.models.requests import OptimizationRequest
 from app.models.responses import OptimizationResponse
-from app.services.optimization.optimization_pipeline import execute_optimization_request
+from app.services.optimization.optimization_pipeline import (
+    OptimizationJobCancelledError,
+    execute_optimization_request,
+)
 from app.services.store.redis_store import RedisStore
 
 logger = structlog.get_logger(__name__)
@@ -44,6 +47,7 @@ class OptimizationJobExecutionBackend(Protocol):
         self,
         request_payload: OptimizationRequest,
         request_id: str | None,
+        job_id: str,
         few_shot_corpus_state: Any | None,
     ) -> OptimizationResponse:
         """Run one job and return the final optimization response."""
@@ -55,6 +59,7 @@ class OptimizationJobExecutionBackend(Protocol):
 def _run_optimization_job_in_worker_process(
     request_payload_dict: dict[str, Any],
     request_id: str | None,
+    job_id: str,
     few_shot_corpus_state: Any | None,
 ) -> dict[str, Any]:
     """
@@ -74,12 +79,26 @@ def _run_optimization_job_in_worker_process(
           Each process creates its own adapter and closes it after the job.
         """
         redis_store = RedisStore()
+
+        async def ensure_job_not_cancelled() -> None:
+            """
+            Read durable job state and raise when the user has cancelled it.
+
+            Educational note:
+              This is cooperative cancellation: we let the pipeline stop at safe
+              checkpoints instead of killing worker processes abruptly.
+            """
+            persisted_job_record = await redis_store.get_job_record(job_id)
+            if persisted_job_record is not None and persisted_job_record.status == "cancelled":
+                raise OptimizationJobCancelledError(f"Optimization job '{job_id}' was cancelled.")
+
         try:
             return await execute_optimization_request(
                 request=OptimizationRequest.model_validate(request_payload_dict),
                 request_id=request_id,
                 few_shot_corpus_state=few_shot_corpus_state,
                 cache_store=redis_store,
+                cancellation_check=ensure_job_not_cancelled,
             )
         finally:
             await redis_store.close()
@@ -107,6 +126,7 @@ class ProcessPoolOptimizationJobExecutionBackend:
         self,
         request_payload: OptimizationRequest,
         request_id: str | None,
+        job_id: str,
         few_shot_corpus_state: Any | None,
     ) -> OptimizationResponse:
         """
@@ -122,6 +142,7 @@ class ProcessPoolOptimizationJobExecutionBackend:
             _run_optimization_job_in_worker_process,
             request_payload.model_dump(mode="python"),
             request_id,
+            job_id,
             few_shot_corpus_state,
         )
         return OptimizationResponse.model_validate(response_payload)

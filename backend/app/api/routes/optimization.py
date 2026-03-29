@@ -13,7 +13,10 @@ from app.observability.redaction import redact_sensitive_data
 from app.observability.request_context import get_request_id
 from app.services.json_extractor import JSONExtractionError
 from app.services.llm_client import LLMClientError
-from app.services.optimization.optimization_pipeline import execute_optimization_request
+from app.services.optimization.optimization_pipeline import (
+    OptimizationRequestBudgetError,
+    execute_optimization_request,
+)
 from app.services.store.redis_store import RedisStoreConnectionError
 
 logger = structlog.get_logger(__name__)
@@ -80,6 +83,13 @@ async def optimize_prompt(request: OptimizationRequest, http_request: Request) -
             status_code=503,
             detail=f"Optimization cache/storage unavailable: {str(redis_error)}",
         )
+    except OptimizationRequestBudgetError as budget_error:
+        logger.warning(
+            "optimize.budget_rejected",
+            request_id=request_id,
+            error=str(budget_error),
+        )
+        raise HTTPException(status_code=422, detail=str(budget_error))
     except Exception as unexpected_error:
         logger.exception(
             "optimize.unexpected_error",

@@ -34,13 +34,18 @@ from app.services.optimization.job_execution_backends import (
     OptimizationJobExecutionBackend,
     ProcessPoolOptimizationJobExecutionBackend,
 )
+from app.services.optimization.optimization_pipeline import (
+    OptimizationJobCancelledError,
+    OptimizationRequestBudgetError,
+    enforce_optimization_request_budget,
+)
 from app.services.store.base import IJobStore
 from app.services.store.models import OptimizationJobPersistedRecord
 from app.services.store.redis_store import RedisStoreConnectionError
 
 logger = structlog.get_logger(__name__)
 
-OptimizationJobStatus = Literal["queued", "running", "succeeded", "failed"]
+OptimizationJobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
 
 
 class OptimizationJobService:
@@ -79,6 +84,11 @@ class OptimizationJobService:
           Called by the job creation route. Returns immediately after the
           background task has been scheduled.
         """
+        try:
+            enforce_optimization_request_budget(optimization_request, request_id=request_id)
+        except OptimizationRequestBudgetError as budget_error:
+            raise HTTPException(status_code=422, detail=str(budget_error)) from budget_error
+
         now_timestamp = self._utc_now_isoformat()
         job_id = str(uuid4())
         persisted_job_record = OptimizationJobPersistedRecord(
@@ -148,12 +158,56 @@ class OptimizationJobService:
                 status_code=409,
                 detail=persisted_job_record.error_message or "Optimization job failed.",
             )
+        if persisted_job_record.status == "cancelled":
+            raise HTTPException(status_code=409, detail="Optimization job was cancelled by user.")
         if (
             persisted_job_record.status != "succeeded"
             or persisted_job_record.optimization_response_json is None
         ):
             raise HTTPException(status_code=409, detail="Optimization job is not finished yet.")
         return OptimizationResponse.model_validate_json(persisted_job_record.optimization_response_json)
+
+    async def cancel_job(self, job_id: str) -> OptimizationJobStatusResponse:
+        """
+        Cancel an optimization job cooperatively and durably.
+
+        Association:
+          Called by `/api/optimize/jobs/{job_id}/cancel`. This method is
+          idempotent and never rewrites terminal non-cancelled states.
+        """
+        persisted_job_record = await self._get_job_record_or_raise(job_id)
+        if persisted_job_record.status in ("succeeded", "failed", "cancelled"):
+            return self._build_job_status_response(persisted_job_record)
+
+        try:
+            updated_job_record = await self._job_store.update_job_record_atomic(
+                job_id=job_id,
+                patch_fields={
+                    "status": "cancelled",
+                    "current_phase": "cancelled",
+                    "error_message": "cancelled_by_user",
+                    "updated_at": self._utc_now_isoformat(),
+                },
+                ttl_seconds=self._job_ttl_seconds,
+                expected_current_status=persisted_job_record.status,
+            )
+        except RedisStoreConnectionError as redis_error:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Job store unavailable: {redis_error}",
+            ) from redis_error
+        if updated_job_record is None:
+            # Another worker updated state first; return latest durable truth.
+            refreshed_job_record = await self._get_job_record_or_raise(job_id)
+            return self._build_job_status_response(refreshed_job_record)
+
+        background_task = self._background_tasks_by_job_id.get(job_id)
+        if persisted_job_record.status == "queued" and background_task is not None:
+            # Queued jobs can be cancelled immediately by stopping orchestration.
+            background_task.cancel()
+            self._background_tasks_by_job_id.pop(job_id, None)
+        logger.info("optimize.job_cancel_requested", job_id=job_id, previous_status=persisted_job_record.status)
+        return self._build_job_status_response(updated_job_record)
 
     async def _run_job(
         self,
@@ -182,12 +236,14 @@ class OptimizationJobService:
                 job_id=persisted_job_record.job_id,
                 status="running",
                 current_phase=phase_name,
+                expected_current_status="running",
             )
 
         try:
             optimization_response = await self._execution_backend.execute_job(
                 request_payload=OptimizationRequest.model_validate(persisted_job_record.request_payload),
                 request_id=persisted_job_record.request_id,
+                job_id=persisted_job_record.job_id,
                 few_shot_corpus_state=few_shot_corpus_state,
             )
             await report_phase("completed")
@@ -206,6 +262,15 @@ class OptimizationJobService:
                 job_id=persisted_job_record.job_id,
                 run_id=run_id,
             )
+        except OptimizationJobCancelledError:
+            await self._update_job_record_resilient(
+                job_id=persisted_job_record.job_id,
+                status="cancelled",
+                current_phase="cancelled",
+                error_message="cancelled_by_user",
+                expected_current_status="running",
+            )
+            logger.info("optimize.job_cancelled", job_id=persisted_job_record.job_id)
         except Exception as job_error:
             await self._update_job_record_resilient(
                 job_id=persisted_job_record.job_id,

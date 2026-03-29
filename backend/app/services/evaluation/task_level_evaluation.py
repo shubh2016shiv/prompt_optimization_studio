@@ -28,7 +28,7 @@ from dataclasses import dataclass
 import json
 import re
 from statistics import mean
-from typing import Any, Literal
+from typing import Any, Awaitable, Callable, Literal
 
 import structlog
 
@@ -44,6 +44,7 @@ from app.services.json_extractor import JSONExtractionError, extract_json_from_l
 from app.services.llm_client import LLMClient
 
 logger = structlog.get_logger(__name__)
+CancellationCheck = Callable[[], Awaitable[None]]
 
 
 @dataclass
@@ -443,6 +444,7 @@ class TaskLevelEvaluationService:
         self,
         optimization_request: OptimizationRequest,
         optimization_response: OptimizationResponse,
+        cancellation_check: CancellationCheck | None = None,
     ) -> None:
         """
         Evaluate all generated variants over the request `evaluation_dataset`.
@@ -464,11 +466,14 @@ class TaskLevelEvaluationService:
         case_outputs_by_variant_id: dict[int, list[str]] = {}
         async with LLMClient(api_key=optimization_request.api_key) as llm_client:
             for prompt_variant in optimization_response.variants:
+                if cancellation_check is not None:
+                    await cancellation_check()
                 variant_case_results, generated_case_outputs = await self._evaluate_single_variant(
                     llm_client=llm_client,
                     optimization_request=optimization_request,
                     prompt_variant=prompt_variant,
                     evaluation_dataset_cases=evaluation_dataset_cases,
+                    cancellation_check=cancellation_check,
                 )
                 case_outputs_by_variant_id[prompt_variant.id] = generated_case_outputs
                 prompt_variant.task_evaluation = self._build_variant_task_evaluation_result(
@@ -481,6 +486,7 @@ class TaskLevelEvaluationService:
                 optimization_response=optimization_response,
                 evaluation_dataset_cases=evaluation_dataset_cases,
                 case_outputs_by_variant_id=case_outputs_by_variant_id,
+                cancellation_check=cancellation_check,
             )
 
         logger.info("optimize.task_evaluation.completed")
@@ -491,6 +497,7 @@ class TaskLevelEvaluationService:
         optimization_request: OptimizationRequest,
         prompt_variant: PromptVariant,
         evaluation_dataset_cases: list[EvaluationDatasetCase],
+        cancellation_check: CancellationCheck | None = None,
     ) -> tuple[list[TaskEvaluationCaseResult], list[str]]:
         """
         Evaluate one prompt variant across all dataset cases.
@@ -502,6 +509,8 @@ class TaskLevelEvaluationService:
         case_results: list[TaskEvaluationCaseResult] = []
         generated_output_texts: list[str] = []
         for case_index, evaluation_case in enumerate(evaluation_dataset_cases, start=1):
+            if cancellation_check is not None:
+                await cancellation_check()
             generated_output_text = await self._generate_variant_output_for_case(
                 llm_client=llm_client,
                 optimization_request=optimization_request,
@@ -618,6 +627,7 @@ class TaskLevelEvaluationService:
         optimization_response: OptimizationResponse,
         evaluation_dataset_cases: list[EvaluationDatasetCase],
         case_outputs_by_variant_id: dict[int, list[str]],
+        cancellation_check: CancellationCheck | None = None,
     ) -> None:
         """
         Apply pairwise tie-break when top variant scores are within margin.
@@ -655,6 +665,8 @@ class TaskLevelEvaluationService:
         compared_case_indexes: list[int] = []
 
         for case_offset, evaluation_case in enumerate(evaluation_dataset_cases):
+            if cancellation_check is not None:
+                await cancellation_check()
             if case_offset >= len(leading_outputs) or case_offset >= len(trailing_outputs):
                 continue
             pairwise_winner = await self._pairwise_tie_breaker_judge.compare_outputs_for_case(

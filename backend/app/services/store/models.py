@@ -24,7 +24,7 @@ class OptimizationJobPersistedRecord(BaseModel):
 
     job_id: str = Field(..., description="Unique job identifier.")
     request_payload: dict[str, Any] = Field(..., description="Serialized OptimizationRequest payload.")
-    status: Literal["queued", "running", "succeeded", "failed"] = Field(
+    status: Literal["queued", "running", "succeeded", "failed", "cancelled"] = Field(
         ...,
         description="Current durable lifecycle state.",
     )

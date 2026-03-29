@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     max_tokens_chat: int = 2048
     max_tokens_task_evaluation_generation: int = 2048
     max_tokens_task_evaluation_judging: int = 900
+    max_task_evaluation_cases_per_request: int = 100
     optimization_job_worker_processes: int = 2
 
     # OpenAI fast model for TCRTE rubric scoring and optimizer internal sub-tasks

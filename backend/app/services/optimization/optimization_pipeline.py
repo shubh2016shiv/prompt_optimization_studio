@@ -13,6 +13,7 @@ from collections.abc import Awaitable, Callable
 
 import structlog
 
+from app.config import get_settings
 from app.models.requests import OptimizationRequest
 from app.models.responses import OptimizationResponse
 from app.observability.langfuse_support import create_trace_id, start_trace, update_current_trace
@@ -28,6 +29,81 @@ logger = structlog.get_logger(__name__)
 
 
 PhaseProgressReporter = Callable[[str], Awaitable[None]]
+CancellationCheck = Callable[[], Awaitable[None]]
+
+
+class OptimizationRequestBudgetError(Exception):
+    """
+    Raised when an optimization request exceeds a configured hard budget cap.
+
+    Association:
+      Used by both synchronous and job APIs so cost guardrails behave
+      consistently across entrypoints.
+    """
+
+
+class OptimizationJobCancelledError(RuntimeError):
+    """
+    Raised when cooperative cancellation is detected during pipeline execution.
+
+    Association:
+      Worker backends and evaluation loops raise this to stop work safely
+      without mislabeling cancellation as a normal failure.
+    """
+
+
+def enforce_optimization_request_budget(
+    optimization_request: OptimizationRequest,
+    *,
+    request_id: str | None,
+) -> None:
+    """
+    Enforce hard request-level budgets before expensive optimization work starts.
+
+    Association:
+      This is the single source of truth for evaluation dataset size limits and
+      is reused by both `/api/optimize` and `/api/optimize/jobs`.
+    """
+    settings = get_settings()
+    evaluation_cases = optimization_request.evaluation_dataset or []
+    total_case_count = len(evaluation_cases)
+    max_allowed_cases = settings.max_task_evaluation_cases_per_request
+
+    if total_case_count > max_allowed_cases:
+        logger.warning(
+            "optimize.budget_check_rejected",
+            request_id=request_id,
+            evaluation_case_count=total_case_count,
+            max_allowed_cases=max_allowed_cases,
+        )
+        raise OptimizationRequestBudgetError(
+            "evaluation_dataset exceeds the allowed limit: "
+            f"{total_case_count} provided, maximum is {max_allowed_cases}."
+        )
+
+    logger.info(
+        "optimize.budget_check_passed",
+        request_id=request_id,
+        evaluation_case_count=total_case_count,
+        max_allowed_cases=max_allowed_cases,
+    )
+
+
+async def _run_cancellation_checkpoint(
+    *,
+    cancellation_check: CancellationCheck | None,
+    checkpoint_name: str,
+) -> None:
+    """
+    Run a cooperative cancellation checkpoint if a checker callback is provided.
+
+    Association:
+      Called at safe boundaries throughout optimization execution.
+    """
+    if cancellation_check is None:
+        return
+    await cancellation_check()
+    logger.debug("optimize.cancellation_checkpoint_passed", checkpoint=checkpoint_name)
 
 
 async def execute_optimization_request(
@@ -37,6 +113,7 @@ async def execute_optimization_request(
     few_shot_corpus_state: object | None = None,
     cache_store: ICacheStore | None = None,
     progress_reporter: PhaseProgressReporter | None = None,
+    cancellation_check: CancellationCheck | None = None,
 ) -> OptimizationResponse:
     """
     Execute the full optimization pipeline and return the assembled response.
@@ -49,6 +126,7 @@ async def execute_optimization_request(
     cached_operations = CachedOptimizationOperations(cache_store) if cache_store is not None else None
     langfuse_trace_id = create_trace_id(request_id or "optimize-request")
     usage_snapshot = UsageSnapshot()
+    enforce_optimization_request_budget(request, request_id=request_id)
 
     async def report_phase(phase_name: str) -> None:
         """Forward progress updates when the caller provided a reporter."""
@@ -72,6 +150,10 @@ async def execute_optimization_request(
                 "model_id": request.model_id,
             },
             tags=["optimize", request.provider],
+        )
+        await _run_cancellation_checkpoint(
+            cancellation_check=cancellation_check,
+            checkpoint_name="before_framework_resolution",
         )
 
         await report_phase("resolving_framework")
@@ -105,6 +187,10 @@ async def execute_optimization_request(
                 framework=effective_framework,
                 auto_reason=auto_reason,
             )
+        await _run_cancellation_checkpoint(
+            cancellation_check=cancellation_check,
+            checkpoint_name="after_framework_resolution",
+        )
 
         await report_phase("preparing_cross_cutting_inputs")
         core_k = 2
@@ -163,6 +249,10 @@ async def execute_optimization_request(
                     request_id=request_id,
                     error=str(knn_retrieval_error),
                 )
+        await _run_cancellation_checkpoint(
+            cancellation_check=cancellation_check,
+            checkpoint_name="after_cross_cutting_inputs",
+        )
 
         await report_phase("generating_variants")
         strategy = OptimizerFactory.get_optimizer(effective_framework)
@@ -173,6 +263,10 @@ async def execute_optimization_request(
             auto_reason=auto_reason,
         )
         response.analysis.few_shot_source = few_shot_source
+        await _run_cancellation_checkpoint(
+            cancellation_check=cancellation_check,
+            checkpoint_name="after_variant_generation",
+        )
 
         if request.evaluation_dataset:
             await report_phase("evaluating_dataset")
@@ -186,7 +280,10 @@ async def execute_optimization_request(
                 await task_level_evaluation_service.evaluate_response_variants(
                     optimization_request=request,
                     optimization_response=response,
+                    cancellation_check=cancellation_check,
                 )
+            except OptimizationJobCancelledError:
+                raise
             except Exception as task_evaluation_error:
                 logger.warning(
                     "optimize.task_evaluation_failed",
@@ -200,6 +297,10 @@ async def execute_optimization_request(
                 request_id=request_id,
                 reason="no_evaluation_dataset",
             )
+        await _run_cancellation_checkpoint(
+            cancellation_check=cancellation_check,
+            checkpoint_name="before_response_finalization",
+        )
 
         await report_phase("finalizing_response")
         _sync_run_usage_metadata(response)

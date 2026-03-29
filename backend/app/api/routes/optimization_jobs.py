@@ -93,7 +93,27 @@ async def get_optimization_job_result(job_id: str, http_request: Request) -> Opt
     Return the completed optimization result for a succeeded job.
 
     Association:
-      This endpoint returns the same OptimizationResponse contract used by the
+    This endpoint returns the same OptimizationResponse contract used by the
       synchronous `/api/optimize` route.
     """
     return await _get_job_service(http_request).get_job_result(job_id)
+
+
+@router.post("/optimize/jobs/{job_id}/cancel", response_model=OptimizationJobStatusResponse)
+async def cancel_optimization_job(job_id: str, http_request: Request) -> OptimizationJobStatusResponse:
+    """
+    Cancel an optimization job using cooperative, durable cancellation semantics.
+
+    Association:
+      Marks the job as cancelled in Redis so worker checkpoints can stop safely.
+    """
+    request_id = get_request_id(http_request)
+    logger.info("optimize.job_cancel_requested", request_id=request_id, job_id=job_id)
+    cancelled_job_status = await _get_job_service(http_request).cancel_job(job_id)
+    logger.info(
+        "optimize.job_cancel_completed",
+        request_id=request_id,
+        job_id=job_id,
+        status=cancelled_job_status.status,
+    )
+    return cancelled_job_status

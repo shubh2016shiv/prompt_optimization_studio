@@ -34,6 +34,15 @@ def _base_payload(framework: str) -> dict:
     }
 
 
+def _payload_with_large_evaluation_dataset(framework: str, case_count: int) -> dict:
+    payload = _base_payload(framework)
+    payload["evaluation_dataset"] = [
+        {"input": f"case-{index}", "expected_output": f"expected-{index}"}
+        for index in range(case_count)
+    ]
+    return payload
+
+
 def _build_pipeline_response(include_task_evaluation: bool) -> OptimizationResponse:
     task_evaluation = None
     if include_task_evaluation:
@@ -109,3 +118,12 @@ def test_optimize_route_returns_task_evaluation_when_pipeline_supplies_it(client
     response = client.post("/api/optimize", json=_base_payload("kernel"))
     assert response.status_code == 200
     assert response.json()["variants"][0]["task_evaluation"]["task_success_score"] == 84
+
+
+def test_optimize_route_rejects_requests_over_evaluation_budget(client):
+    response = client.post(
+        "/api/optimize",
+        json=_payload_with_large_evaluation_dataset("kernel", case_count=101),
+    )
+    assert response.status_code == 422
+    assert "maximum is 100" in response.json()["detail"]

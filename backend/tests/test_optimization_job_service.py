@@ -28,7 +28,7 @@ class _FakeExecutionBackend:
     def __init__(self, response_delay_seconds: float = 0.0):
         self.response_delay_seconds = response_delay_seconds
 
-    async def execute_job(self, request_payload, request_id, few_shot_corpus_state):
+    async def execute_job(self, request_payload, request_id, job_id, few_shot_corpus_state):
         if self.response_delay_seconds > 0:
             await asyncio.sleep(self.response_delay_seconds)
         return _build_response()
@@ -79,7 +79,13 @@ class _FailingJobStore(_FakeJobStore):
         raise RedisStoreConnectionError("redis unavailable")
 
 
-def _build_request() -> OptimizationRequest:
+def _build_request(evaluation_case_count: int = 0) -> OptimizationRequest:
+    evaluation_dataset = None
+    if evaluation_case_count > 0:
+        evaluation_dataset = [
+            {"input": f"input-{index}", "expected_output": f"expected-{index}"}
+            for index in range(evaluation_case_count)
+        ]
     return OptimizationRequest(
         raw_prompt="Summarize this text.",
         task_type="reasoning",
@@ -90,6 +96,7 @@ def _build_request() -> OptimizationRequest:
         is_reasoning_model=False,
         api_key="dummy",
         quality_gate_mode="off",
+        evaluation_dataset=evaluation_dataset,
     )
 
 
@@ -190,3 +197,82 @@ async def test_job_service_returns_503_when_store_unavailable():
     with pytest.raises(HTTPException) as status_error:
         await service.get_job_status("job-123")
     assert status_error.value.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_job_service_rejects_request_over_budget_without_starting_worker():
+    service = OptimizationJobService(
+        execution_backend=_FakeExecutionBackend(),
+        job_store=_FakeJobStore(),
+    )
+
+    with pytest.raises(HTTPException) as budget_error:
+        await service.create_job(
+            optimization_request=_build_request(evaluation_case_count=101),
+            http_request=_DummyRequest(),
+            request_id="request-123",
+            trace_id="trace-123",
+        )
+    assert budget_error.value.status_code == 422
+    assert len(service._background_tasks_by_job_id) == 0
+    assert len(service._job_store.records) == 0
+
+
+@pytest.mark.asyncio
+async def test_cancel_queued_job_marks_cancelled_and_clears_background_task():
+    fake_job_store = _FakeJobStore()
+    service = OptimizationJobService(
+        execution_backend=_FakeExecutionBackend(),
+        job_store=fake_job_store,
+    )
+    queued_record = OptimizationJobPersistedRecord(
+        job_id="job-queued",
+        request_payload=_build_request().model_dump(mode="python"),
+        status="queued",
+        created_at="2026-03-30T00:00:00Z",
+        updated_at="2026-03-30T00:00:00Z",
+        current_phase="queued",
+    )
+    await fake_job_store.create_job_record(queued_record, ttl_seconds=60)
+    dummy_task = asyncio.create_task(asyncio.sleep(5))
+    service._background_tasks_by_job_id[queued_record.job_id] = dummy_task
+
+    try:
+        cancelled_status = await service.cancel_job(queued_record.job_id)
+        assert cancelled_status.status == "cancelled"
+        assert cancelled_status.current_phase == "cancelled"
+        assert queued_record.job_id not in service._background_tasks_by_job_id
+    finally:
+        dummy_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await dummy_task
+
+
+@pytest.mark.asyncio
+async def test_cancel_running_job_prevents_final_success_overwrite():
+    service = OptimizationJobService(
+        execution_backend=_FakeExecutionBackend(response_delay_seconds=0.2),
+        job_store=_FakeJobStore(),
+    )
+    created_job = await service.create_job(
+        optimization_request=_build_request(),
+        http_request=_DummyRequest(),
+        request_id="request-123",
+        trace_id="trace-123",
+    )
+
+    await asyncio.sleep(0.05)
+    cancel_response = await service.cancel_job(created_job.job_id)
+    assert cancel_response.status == "cancelled"
+
+    background_task = service._background_tasks_by_job_id.get(created_job.job_id)
+    if background_task is not None:
+        await asyncio.wait_for(background_task, timeout=1.0)
+
+    final_status = await service.get_job_status(created_job.job_id)
+    assert final_status.status == "cancelled"
+
+    with pytest.raises(HTTPException) as result_error:
+        await service.get_job_result(created_job.job_id)
+    assert result_error.value.status_code == 409
+    assert "cancelled" in str(result_error.value.detail)
