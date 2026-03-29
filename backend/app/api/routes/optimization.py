@@ -16,6 +16,7 @@ from app.observability.redaction import redact_sensitive_data
 from app.observability.request_context import get_request_id
 from app.observability.usage_tracking import UsageSnapshot, bind_usage_snapshot
 from app.services.analysis import count_reasoning_hops, select_framework
+from app.services.evaluation.task_level_evaluation import TaskLevelEvaluationService
 from app.services.json_extractor import JSONExtractionError
 from app.services.llm_client import LLMClientError
 from app.services.optimization import retrieve_k_nearest
@@ -23,6 +24,7 @@ from app.services.optimization.base import OptimizerFactory, _sync_run_usage_met
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
+task_level_evaluation_service = TaskLevelEvaluationService()
 
 
 @router.post("/optimize", response_model=OptimizationResponse)
@@ -150,6 +152,31 @@ async def optimize_prompt(request: OptimizationRequest, http_request: Request) -
                 auto_reason=auto_reason,
             )
             response.analysis.few_shot_source = few_shot_source
+            if request.evaluation_dataset:
+                logger.info(
+                    "optimize.task_evaluation_requested",
+                    request_id=request_id,
+                    run_id=(response.run_metadata.run_id if response.run_metadata else None),
+                    dataset_cases=len(request.evaluation_dataset),
+                )
+                try:
+                    await task_level_evaluation_service.evaluate_response_variants(
+                        optimization_request=request,
+                        optimization_response=response,
+                    )
+                except Exception as task_evaluation_error:
+                    logger.warning(
+                        "optimize.task_evaluation_failed",
+                        request_id=request_id,
+                        run_id=(response.run_metadata.run_id if response.run_metadata else None),
+                        error=str(task_evaluation_error),
+                    )
+            else:
+                logger.info(
+                    "optimize.task_evaluation_skipped",
+                    request_id=request_id,
+                    reason="no_evaluation_dataset",
+                )
             _sync_run_usage_metadata(response)
 
             run_id = response.run_metadata.run_id if response.run_metadata else None

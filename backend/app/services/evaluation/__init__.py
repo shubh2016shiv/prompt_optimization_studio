@@ -10,9 +10,11 @@ every generated prompt variant is objectively good before reaching the user.
 
 from app.services.evaluation.critique_result import CritiqueResult, DimensionScores
 from app.services.evaluation.prompt_quality_critic import PromptQualityCritic
+from app.services.evaluation.task_level_evaluation import TaskLevelEvaluationService
 
 __all__ = [
     "PromptQualityCritic",
     "CritiqueResult",
     "DimensionScores",
+    "TaskLevelEvaluationService",
 ]

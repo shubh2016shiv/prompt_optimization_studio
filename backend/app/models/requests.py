@@ -4,9 +4,9 @@ Pydantic request models for API endpoints.
 These define the shape of incoming request bodies with validation.
 """
 
-from typing import Optional, Literal
+from typing import Any, Optional, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class GapAnalysisRequest(BaseModel):
@@ -46,6 +46,42 @@ class GapAnalysisRequest(BaseModel):
         min_length=1,
         description="API key for the LLM provider",
     )
+
+
+class EvaluationDatasetCase(BaseModel):
+    """
+    One task-level evaluation example provided by the API caller.
+
+    This model is used by the optimization route when the caller requests
+    empirical task scoring for each generated prompt variant.
+    """
+
+    input: str = Field(
+        ...,
+        min_length=1,
+        description="Task input that will be sent to each generated variant.",
+    )
+    expected_output: Any = Field(
+        ...,
+        description=(
+            "Canonical reference output used for scoring. "
+            "Can be plain text or structured JSON-like data."
+        ),
+    )
+
+    @field_validator("expected_output")
+    @classmethod
+    def validate_expected_output_is_present(cls, expected_output_value: Any) -> Any:
+        """
+        Ensure each dataset case provides an actual expected output.
+
+        Association:
+          This validator protects app.services.evaluation.task_level_evaluation,
+          which assumes every case has a non-null expected output for scoring.
+        """
+        if expected_output_value is None:
+            raise ValueError("expected_output cannot be null")
+        return expected_output_value
 
 
 class OptimizationRequest(BaseModel):
@@ -99,6 +135,14 @@ class OptimizationRequest(BaseModel):
     answers: Optional[dict[str, str]] = Field(
         default=None,
         description="User answers to gap interview questions (question text -> answer)",
+    )
+    evaluation_dataset: Optional[list[EvaluationDatasetCase]] = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Optional dataset for task-level empirical scoring. "
+            "When supplied, each generated variant is executed against each case."
+        ),
     )
     api_key: str = Field(
         ...,

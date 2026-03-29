@@ -37,9 +37,14 @@ class Settings(BaseSettings):
     max_tokens_gap_analysis: int = 1500
     max_tokens_optimization: int = 4096
     max_tokens_chat: int = 2048
+    max_tokens_task_evaluation_generation: int = 2048
+    max_tokens_task_evaluation_judging: int = 900
 
     # OpenAI fast model for TCRTE rubric scoring and optimizer internal sub-tasks
     openai_subtask_model: str = "gpt-4.1-nano"
+    task_evaluation_case_pass_threshold: int = 70
+    task_evaluation_pairwise_margin: int = 5
+    task_evaluation_pairwise_adjustment: int = 2
 
     # TCRTE scorer (OpenAI Chat Completions) — see app.services.scoring.tcrte_scorer
     openai_chat_completions_url: str = "https://api.openai.com/v1/chat/completions"

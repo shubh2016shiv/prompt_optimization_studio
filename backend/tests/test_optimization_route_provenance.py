@@ -6,6 +6,8 @@ from app.models.responses import (
     OptimizationAnalysis,
     OptimizationResponse,
     PromptVariant,
+    TaskEvaluationCaseResult,
+    TaskEvaluationResult,
     VariantTCRTEScores,
 )
 
@@ -63,6 +65,14 @@ def _base_payload(framework: str) -> dict:
     }
 
 
+def _payload_with_dataset(framework: str) -> dict:
+    payload = _base_payload(framework)
+    payload["evaluation_dataset"] = [
+        {"input": "Extract invoice number", "expected_output": "INV-2044"},
+    ]
+    return payload
+
+
 def test_optimize_sets_few_shot_source_not_applicable(client, monkeypatch):
     from app.api.routes import optimization as opt_route
 
@@ -110,3 +120,59 @@ def test_optimize_sets_few_shot_source_synthetic_on_retrieval_failure(client, mo
     response = client.post("/api/optimize", json=_base_payload("cot_ensemble"))
     assert response.status_code == 200
     assert response.json()["analysis"]["few_shot_source"] == "synthetic"
+
+
+def test_optimize_calls_task_evaluation_when_dataset_is_present(client, monkeypatch):
+    from app.api.routes import optimization as opt_route
+
+    async def fake_task_evaluation(*, optimization_request, optimization_response):
+        for variant in optimization_response.variants:
+            variant.task_evaluation = TaskEvaluationResult(
+                task_success_score=84,
+                pass_rate=1.0,
+                total_cases=1,
+                passed_cases=1,
+                judging_mode="deterministic",
+                pairwise_tie_break_applied=False,
+                failure_reasons=[],
+                case_results=[
+                    TaskEvaluationCaseResult(
+                        case_index=1,
+                        score=84,
+                        status="pass",
+                        scoring_method="deterministic",
+                        failure_reason=None,
+                    )
+                ],
+            )
+
+    monkeypatch.setattr(opt_route.OptimizerFactory, "get_optimizer", lambda _f: DummyStrategy())
+    monkeypatch.setattr(
+        opt_route.task_level_evaluation_service,
+        "evaluate_response_variants",
+        fake_task_evaluation,
+    )
+
+    response = client.post("/api/optimize", json=_payload_with_dataset("kernel"))
+    assert response.status_code == 200
+    serialized_variant = response.json()["variants"][0]
+    assert serialized_variant["task_evaluation"] is not None
+    assert serialized_variant["task_evaluation"]["task_success_score"] == 84
+
+
+def test_optimize_skips_task_evaluation_when_dataset_absent(client, monkeypatch):
+    from app.api.routes import optimization as opt_route
+
+    async def fail_if_called(*args, **kwargs):
+        raise AssertionError("Task evaluation should be skipped when evaluation_dataset is absent")
+
+    monkeypatch.setattr(opt_route.OptimizerFactory, "get_optimizer", lambda _f: DummyStrategy())
+    monkeypatch.setattr(
+        opt_route.task_level_evaluation_service,
+        "evaluate_response_variants",
+        fail_if_called,
+    )
+
+    response = client.post("/api/optimize", json=_base_payload("kernel"))
+    assert response.status_code == 200
+    assert response.json()["variants"][0]["task_evaluation"] is None
