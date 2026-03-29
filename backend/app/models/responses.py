@@ -73,6 +73,29 @@ class VariantTCRTEScores(BaseModel):
     execution: int = Field(..., ge=0, le=100)
 
 
+class PromptQualityDimensionScores(BaseModel):
+    """Per-dimension quality scores measured by the internal PromptQualityCritic."""
+
+    role_clarity: int = Field(..., ge=0, le=100, description="Does the prompt define who the model is?")
+    task_specificity: int = Field(..., ge=0, le=100, description="Is the task unambiguous and bounded?")
+    constraint_completeness: int = Field(..., ge=0, le=100, description="Are hard/soft constraints explicit?")
+    output_format: int = Field(..., ge=0, le=100, description="Is the output structure specified?")
+    hallucination_resistance: int = Field(..., ge=0, le=100, description="Are anti-hallucination guards in place?")
+    edge_case_handling: int = Field(..., ge=0, le=100, description="Is behaviour for edge cases defined?")
+    improvement_over_raw: int = Field(..., ge=0, le=100, description="How much better than the raw prompt?")
+
+
+class PromptQualityEvaluation(BaseModel):
+    """Quality evaluation result attached to each variant by the internal critic."""
+
+    overall_score: int = Field(..., ge=0, le=100, description="Weighted average quality score")
+    grade: Literal["A", "B", "C", "D", "F"] = Field(..., description="Letter grade (A=90+, B=80+, C=70+, D=50+, F=<50)")
+    dimensions: PromptQualityDimensionScores = Field(..., description="Per-dimension breakdown")
+    strengths: list[str] = Field(..., description="What the prompt does well")
+    remaining_gaps: list[str] = Field(..., description="Weaknesses still present after enhancement")
+    was_enhanced: bool = Field(..., description="True if the variant was improved by the critic")
+
+
 class PromptVariant(BaseModel):
     """A single optimized prompt variant."""
 
@@ -86,6 +109,9 @@ class PromptVariant(BaseModel):
     )
     token_estimate: int = Field(..., ge=0, description="Estimated token count")
     tcrte_scores: VariantTCRTEScores = Field(..., description="TCRTE coverage scores")
+    quality_evaluation: Optional[PromptQualityEvaluation] = Field(
+        default=None, description="Quality evaluation from the internal PromptQualityCritic"
+    )
     strengths: list[str] = Field(..., description="Key strengths of this variant")
     best_for: str = Field(..., description="Use cases this variant is best suited for")
     overshoot_guards: list[str] = Field(..., description="Anti-overshoot protections")
@@ -99,6 +125,14 @@ class OptimizationAnalysis(BaseModel):
     model_notes: str = Field(..., description="Notes about model-specific optimizations")
     framework_applied: str = Field(..., description="The framework that was applied")
     coverage_delta: str = Field(..., description="Coverage improvement summary")
+    auto_selected_framework: Optional[str] = Field(
+        default=None,
+        description="Framework chosen by auto-select logic. None if user manually selected.",
+    )
+    auto_reason: Optional[str] = Field(
+        default=None,
+        description="Human-readable explanation of why auto-select chose this framework.",
+    )
 
 
 class OptimizationResponse(BaseModel):
