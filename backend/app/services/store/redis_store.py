@@ -85,9 +85,15 @@ class RedisStore(IJobStore, ICacheStore):
         """
         Atomically patch one job record with optimistic locking.
 
-        Educational note:
-          `WATCH + MULTI/EXEC` ensures two workers do not silently overwrite
-          each other. If status transitions race, one update is retried.
+        Educational note on 'Resilient Mutations via WATCH + MULTI/EXEC':
+          In a distributed system, background task 'A' might try to mark a job as 'completed', 
+          while a user simultaneously calls an endpoint 'B' to 'cancel' that exact same job. 
+          If both read the Redis record at the same millisecond and write back differing states, 
+          one will accidentally overwrite the other, destroying data state.
+
+          Redis 'WATCH' monitors the key. If any other connection modifies the key between our 
+          'WATCH' and our 'transaction.execute()', Redis aborts our transaction (WatchError).
+          We catch that WatchError and retry the whole patch safely in the loop below.
         """
         key = self._job_key(job_id)
         for _ in range(5):

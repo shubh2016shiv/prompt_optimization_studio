@@ -71,9 +71,15 @@ class CachedOptimizationOperations:
         """
         Lazily build and cache corpus embeddings with lock-based stampede control.
 
-        Educational note:
-          The distributed lock prevents N concurrent requests from all computing
-          the same corpus embeddings simultaneously when the cache is cold.
+        Educational note on 'Cache Stampede Protection':
+          A 'Cache Stampede' happens when an expensive cached item expires (or hasn't been built yet), 
+          and under high traffic, hundreds of requests hit the system at the exact same millisecond. 
+          Without a lock, all 100 requests would notice the cache is empty, and all 100 would 
+          simultaneously make a 10-second API call to Gemini, burning tokens and hitting rate limits.
+
+          By using a distributed lock (acquire_lock), only the *first* request wins the lock and 
+          does the hard work. The other 99 requests fall into a waiting loop, periodically checking 
+          the cache until the first worker finishes.
         """
         cache_key = "few_shot_corpus"
         cached_value = await self._cache_store.get_json(cache_key)
@@ -101,11 +107,13 @@ class CachedOptimizationOperations:
             finally:
                 await self._cache_store.release_lock(lock_key, lock_token)
 
-        # Another process owns the lock. Poll for cache availability briefly.
+        # Cache Stampede Protection: Another process owns the lock and is doing the expensive work.
+        # Instead of failing or making redundant Gemini LLM hits, we safely wait (poll).
         for _ in range(20):
             await asyncio.sleep(0.25)
             polled_value = await self._cache_store.get_json(cache_key)
             if polled_value is not None:
+                # The lock-owner finished! We get to use the result without paying the latency/compute cost.
                 logger.info("optimize.cache_hit", cache_key=cache_key, operation="few_shot_corpus")
                 return polled_value
 

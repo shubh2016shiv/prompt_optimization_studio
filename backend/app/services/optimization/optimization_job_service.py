@@ -249,9 +249,16 @@ class OptimizationJobService:
         """
         Update durable job state while tolerating transient Redis blips.
 
-        Educational note:
-          Runtime job logic should not crash just because a status write fails.
-          We log Redis connection issues with job_id context and continue.
+        Educational note on 'Swallowing Connection Errors':
+          Imagine an optimization job that just spent 2 minutes and $0.50 generating 
+          beautiful prompt variants via the LLM pipeline. Now it simply needs to update 
+          the Redis status to 'succeeded'.
+          
+          If there is a 1-second network blip to Redis right at this moment, 
+          raising an uncaught exception would crash the entire background context, 
+          destroying the generated prompts and wasting the user's money. 
+          By catching RedisStoreConnectionError here, we log the failure but allow 
+          the background pipeline execution to safely continue.
         """
         patch_fields: dict[str, object] = {"updated_at": self._utc_now_isoformat()}
         if status is not None:
@@ -272,6 +279,8 @@ class OptimizationJobService:
                 expected_current_status=expected_current_status,
             )
         except RedisStoreConnectionError as redis_error:
+            # We swallow the error cleanly. We log it loudly so DevOps knows Redis blinked, 
+            # but we do NOT raise an exception that would crash the active LLM evaluation job.
             logger.warning(
                 "optimize.job_status_update_failed",
                 job_id=job_id,
