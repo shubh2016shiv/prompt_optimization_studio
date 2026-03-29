@@ -59,6 +59,7 @@ def _build_response() -> OptimizationResponse:
             coverage_delta="",
             auto_selected_framework=None,
             auto_reason=None,
+            few_shot_source="not_applicable",
         ),
         techniques_applied=[],
         variants=variants,
@@ -143,7 +144,9 @@ async def test_quality_gate_mode_critique_only_does_not_enhance(monkeypatch):
         assert variant.quality_evaluation is not None
         assert variant.quality_evaluation.was_enhanced is False
         assert variant.quality_scores_source == "prompt_quality_critic"
-        assert variant.tcrte_scores_source == "quality_critic_proxy"
+        assert variant.tcrte_scores_source == "initial_framework_estimate"
+        assert variant.tcrte_scores.task == 50
+        assert variant.tcrte_scores.execution == 50
 
 
 @pytest.mark.asyncio
@@ -189,3 +192,37 @@ async def test_fallback_propagates_to_variant_metadata(monkeypatch):
     assert second.quality_evaluation is None
     assert second.quality_scores_source == "not_evaluated"
     assert second.tcrte_scores_source == "initial_framework_estimate"
+
+
+@pytest.mark.asyncio
+async def test_quality_gate_exception_sets_failed_status(monkeypatch):
+    strategy = DummyStrategy()
+    response = _build_response()
+
+    async def exploding_critique(self, system_prompt, raw_prompt, task_type, llm_client):
+        raise RuntimeError("judge unavailable")
+
+    monkeypatch.setattr("app.services.llm_client.LLMClient", FakeLLMClient)
+    monkeypatch.setattr(
+        "app.services.evaluation.prompt_quality_critic.PromptQualityCritic.critique_prompt",
+        exploding_critique,
+    )
+
+    refined = await strategy._refine_variants_with_quality_critique(
+        response=response,
+        raw_prompt="raw",
+        task_type="reasoning",
+        api_key="dummy",
+        quality_gate_mode="sample_one_variant",
+        target_model="claude-sonnet-4-6",
+    )
+
+    first = refined.variants[0]
+    assert first.quality_evaluation is not None
+    assert first.quality_evaluation.status == "failed"
+    assert first.quality_evaluation.was_fallback is True
+    assert first.quality_scores_source == "fallback"
+    assert refined.run_metadata is not None
+    assert refined.run_metadata.framework == "kernel"
+    assert refined.run_metadata.target_model == "claude-sonnet-4-6"
+    assert len(refined.run_metadata.raw_prompt_hash) == 64

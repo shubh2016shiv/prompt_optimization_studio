@@ -1,7 +1,14 @@
 """
-JSON extraction utility for LLM responses.
+LLM JSON extraction helpers.
 
-Handles the common case where LLMs wrap JSON output in markdown code fences.
+Purpose:
+  Parse JSON payloads from LLM responses that may include markdown fences or
+  extra commentary. This keeps downstream parsing resilient without changing
+  the model prompts.
+
+Behavior:
+  Attempts direct JSON parsing, then code-fence extraction, then heuristic
+  object/array scanning. Raises a dedicated JSONExtractionError on failure.
 """
 
 import json

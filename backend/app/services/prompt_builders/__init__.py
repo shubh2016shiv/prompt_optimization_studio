@@ -1,4 +1,10 @@
-"""Prompt builder functions for LLM calls."""
+"""
+Prompt builder package.
+
+Purpose:
+  Centralizes construction of system and user prompts for gap analysis,
+  optimization, and chat workflows.
+"""
 
 from app.services.prompt_builders.gap_analysis_builder import build_gap_analysis_prompt
 from app.services.prompt_builders.optimizer_builder import build_optimizer_prompt

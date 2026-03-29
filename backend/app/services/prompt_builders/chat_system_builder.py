@@ -1,7 +1,13 @@
 """
 Chat system prompt builder.
 
-Builds the system prompt for the AI chat assistant with full session context.
+Purpose:
+  Construct the system prompt for the chat assistant so it can respond with
+  full awareness of the user's prompt, variants, and gap analysis results.
+
+Notes:
+  This builder embeds TCRTE coverage details (Task, Context, Role, Tone,
+  Execution) so the assistant can explain quality gaps and improvements.
 """
 
 from typing import Optional, Any

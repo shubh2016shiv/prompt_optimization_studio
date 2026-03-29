@@ -102,9 +102,25 @@ def test_select_framework_kernel():
     assert framework == "kernel"
     assert "Simple or tool-oriented task" in reason
 
-def test_select_framework_textgrad_default():
+def test_select_framework_textgrad_only_for_complex_low_tcrte():
     """
-    If no other rules match, the default should be textgrad to harden against failure modes.
+    TextGrad should be selected only for complex tasks with very low TCRTE.
+    """
+    framework, reason = select_framework(
+        is_reasoning_model=False,
+        task_type="unknown_task",
+        complexity="complex",
+        tcrte_overall_score=35,
+        provider="openai",
+        recommended_techniques=[]
+    )
+    assert framework == "textgrad"
+    assert "very low TCRTE" in reason
+
+
+def test_select_framework_default_unmatched_goes_kernel():
+    """
+    Unmatched non-complex tasks should default to kernel (lower-cost fallback).
     """
     framework, reason = select_framework(
         is_reasoning_model=False,
@@ -114,5 +130,5 @@ def test_select_framework_textgrad_default():
         provider="openai",
         recommended_techniques=[]
     )
-    assert framework == "textgrad"
-    assert "No specific rule matched" in reason
+    assert framework == "kernel"
+    assert "lower-cost default" in reason

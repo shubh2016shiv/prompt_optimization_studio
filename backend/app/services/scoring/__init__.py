@@ -1,6 +1,9 @@
 """
 Scoring services for APOST.
-Exports the TCRTE scorer that provides structured, reproducible prompt coverage analysis.
+
+Purpose:
+  Expose the TCRTE scorer used to quantify prompt coverage across
+  Task, Context, Role, Tone, and Execution dimensions.
 """
 
 from .tcrte_scorer import compute_weighted_tcrte_overall, score_tcrte

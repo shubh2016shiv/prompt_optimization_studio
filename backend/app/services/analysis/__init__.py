@@ -1,6 +1,9 @@
 """
-Analysis services for APOST.
-Exports the hop counter (CoRe adaptive k) and the deterministic framework selector.
+Analysis services package.
+
+Purpose:
+  Centralizes deterministic analysis utilities used by the optimization
+  pipeline, including hop counting (CoRe) and framework auto-selection.
 """
 
 from .hop_counter import count_reasoning_hops

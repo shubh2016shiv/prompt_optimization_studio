@@ -50,15 +50,18 @@ DESIGN DECISIONS:
 
 from abc import ABC, abstractmethod
 import asyncio
+import hashlib
 import logging
+from datetime import datetime, timezone
 from typing import Any, List, Optional, Literal
+from uuid import uuid4
 
 from app.models.requests import OptimizationRequest
 from app.models.responses import (
+    OptimizationRunMetadata,
     OptimizationResponse,
     PromptQualityDimensionScores,
     PromptQualityEvaluation,
-    VariantTCRTEScores,
 )
 
 logger = logging.getLogger(__name__)
@@ -124,6 +127,8 @@ class BaseOptimizerStrategy(ABC):
         task_type: str,
         api_key: str,
         quality_gate_mode: Literal["full", "critique_only", "off", "sample_one_variant"] = "full",
+        framework: Optional[str] = None,
+        target_model: Optional[str] = None,
     ) -> OptimizationResponse:
         """
         Internal quality gate: critique each variant, enhance weak ones,
@@ -159,10 +164,20 @@ class BaseOptimizerStrategy(ABC):
         # Lazy import to avoid circular dependency (evaluation imports LLMClient)
         from app.services.evaluation.prompt_quality_critic import PromptQualityCritic
         from app.services.evaluation.evaluation_rubric import (
+            LLM_JUDGE_MODEL,
             QUALITY_GATE_THRESHOLD,
             score_to_grade,
         )
         from app.services.llm_client import LLMClient
+
+        response.run_metadata = OptimizationRunMetadata(
+            run_id=str(uuid4()),
+            raw_prompt_hash=hashlib.sha256(raw_prompt.encode("utf-8")).hexdigest(),
+            framework=framework or response.analysis.framework_applied,
+            judge_model=LLM_JUDGE_MODEL,
+            target_model=target_model or "unknown",
+            timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        )
 
         critic = PromptQualityCritic()
         evaluated_variant_indices = [0, 1, 2]
@@ -232,18 +247,8 @@ class BaseOptimizerStrategy(ABC):
                     variant.system_prompt = final_system_prompt
                     variant.token_estimate = len(final_system_prompt) // 4
 
-                    # Replace hardcoded TCRTE proxy scores only when critique is valid.
-                    if not critique.was_fallback:
-                        variant.tcrte_scores = VariantTCRTEScores(
-                            task=critique.dimensions.task_specificity,
-                            context=critique.dimensions.constraint_completeness,
-                            role=critique.dimensions.role_clarity,
-                            tone=critique.dimensions.edge_case_handling,
-                            execution=critique.dimensions.output_format,
-                        )
-                        variant.tcrte_scores_source = "quality_critic_proxy"
-                    else:
-                        variant.tcrte_scores_source = "initial_framework_estimate"
+                    # Preserve original framework TCRTE estimate for contract stability.
+                    variant.tcrte_scores_source = "initial_framework_estimate"
 
                     # Attach quality evaluation metadata
                     fallback_gaps = [critique.reasoning] if critique.was_fallback and critique.reasoning else []
@@ -272,6 +277,13 @@ class BaseOptimizerStrategy(ABC):
                     variant.quality_scores_source = (
                         "fallback" if critique.was_fallback else "prompt_quality_critic"
                     )
+                    if critique.was_fallback:
+                        logger.warning(
+                            "Quality gate fallback triggered for variant_id=%s variant_index=%s reason=%s",
+                            variant.id,
+                            variant_index,
+                            critique.reasoning or "unspecified",
+                        )
 
             except Exception as variant_error:
                 logger.warning(
@@ -280,7 +292,7 @@ class BaseOptimizerStrategy(ABC):
                     variant_index + 1, variant_error,
                 )
                 variant.quality_evaluation = PromptQualityEvaluation(
-                    status="degraded",
+                    status="failed",
                     overall_score=0,
                     grade=score_to_grade(0),
                     dimensions=PromptQualityDimensionScores(
@@ -299,6 +311,12 @@ class BaseOptimizerStrategy(ABC):
                 )
                 variant.quality_scores_source = "fallback"
                 variant.tcrte_scores_source = "initial_framework_estimate"
+                logger.warning(
+                    "Quality gate hard failure for variant_id=%s variant_index=%s reason=%s",
+                    variant.id,
+                    variant_index,
+                    str(variant_error),
+                )
 
         # Run selected variant critiques in parallel for minimal latency.
         await asyncio.gather(

@@ -1,8 +1,14 @@
 """
-Async LLM client supporting Anthropic, OpenAI, and Google providers.
+Async LLM client for Anthropic, OpenAI, and Google providers.
 
-Routes every call to the provider the user selected in the UI,
-using only the API key they entered — no server-side keys needed.
+Purpose:
+  Provide a single interface for all provider calls so the rest of the codebase
+  does not need to handle HTTP details or response parsing.
+
+Key behaviors:
+  - Uses only the per-request API key supplied by the user.
+  - Supports both single-turn and chat-style calls.
+  - Normalizes provider differences (payload shape, token parameter naming).
 """
 
 from typing import Optional

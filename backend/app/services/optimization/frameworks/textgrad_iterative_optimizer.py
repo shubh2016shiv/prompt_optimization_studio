@@ -489,6 +489,7 @@ class TextGradIterativeOptimizer(BaseOptimizerStrategy):
             task_type=request.task_type,
             api_key=request.api_key,
             quality_gate_mode=request.quality_gate_mode,
+            target_model=request.model_id,
         )
 
         return response
@@ -556,3 +557,4 @@ if __name__ == "__main__":
             traceback.print_exc()
 
     asyncio.run(test_textgrad_iterative_optimizer())
+

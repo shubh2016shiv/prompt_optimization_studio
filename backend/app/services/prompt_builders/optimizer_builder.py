@@ -1,7 +1,13 @@
 """
 Optimizer prompt builder.
 
-Constructs the meta-prompt for generating optimized prompt variants.
+Purpose:
+  Build the meta-prompt that instructs the chosen framework to generate
+  optimized system/user prompt variants for the user.
+
+Notes:
+  This builder injects gap analysis signals (TCRTE scores, complexity, and
+  recommended techniques) so the optimizer can address coverage weaknesses.
 """
 
 from typing import Optional, Any

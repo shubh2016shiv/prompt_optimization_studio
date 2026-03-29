@@ -233,6 +233,7 @@ OUTPUT SCHEMA
             task_type=request.task_type,
             api_key=request.api_key,
             quality_gate_mode=request.quality_gate_mode,
+            target_model=request.model_id,
         )
 
         return response
@@ -241,3 +242,4 @@ OUTPUT SCHEMA
         if not items:
             return "- None specified."
         return "\n".join([f"- {i}" for i in items])
+

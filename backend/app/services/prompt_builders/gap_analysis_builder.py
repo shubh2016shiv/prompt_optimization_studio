@@ -1,7 +1,13 @@
 """
 Gap analysis prompt builder.
 
-Constructs the meta-prompt for TCRTE coverage auditing.
+Purpose:
+  Build the meta-prompt that asks an LLM to analyze a raw prompt for coverage
+  gaps, using the TCRTE rubric.
+
+What is TCRTE?
+  A five-dimension coverage rubric: Task, Context, Role, Tone, Execution.
+  The gap analysis step uses these scores to recommend techniques and questions.
 """
 
 import json
