@@ -220,6 +220,7 @@ async def test_quality_gate_exception_sets_failed_status(monkeypatch):
     first = refined.variants[0]
     assert first.quality_evaluation is not None
     assert first.quality_evaluation.status == "failed"
+    assert first.quality_evaluation.overall_score is None
     assert first.quality_evaluation.was_fallback is True
     assert first.quality_scores_source == "fallback"
     assert refined.run_metadata is not None

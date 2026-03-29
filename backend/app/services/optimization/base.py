@@ -51,10 +51,11 @@ DESIGN DECISIONS:
 from abc import ABC, abstractmethod
 import asyncio
 import hashlib
-import logging
 from datetime import datetime, timezone
 from typing import Any, List, Optional, Literal
 from uuid import uuid4
+
+import structlog
 
 from app.models.requests import OptimizationRequest
 from app.models.responses import (
@@ -64,7 +65,7 @@ from app.models.responses import (
     PromptQualityEvaluation,
 )
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class BaseOptimizerStrategy(ABC):
@@ -170,13 +171,21 @@ class BaseOptimizerStrategy(ABC):
         )
         from app.services.llm_client import LLMClient
 
+        run_id = str(uuid4())
         response.run_metadata = OptimizationRunMetadata(
-            run_id=str(uuid4()),
+            run_id=run_id,
             raw_prompt_hash=hashlib.sha256(raw_prompt.encode("utf-8")).hexdigest(),
             framework=framework or response.analysis.framework_applied,
             judge_model=LLM_JUDGE_MODEL,
             target_model=target_model or "unknown",
             timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        )
+        structlog.contextvars.bind_contextvars(run_id=run_id, framework=response.run_metadata.framework)
+        logger.info(
+            "optimize.run_metadata_initialized",
+            run_id=run_id,
+            framework=response.run_metadata.framework,
+            target_model=response.run_metadata.target_model,
         )
 
         critic = PromptQualityCritic()
@@ -188,7 +197,7 @@ class BaseOptimizerStrategy(ABC):
                 variant.quality_evaluation = None
                 variant.quality_scores_source = "not_evaluated"
                 variant.tcrte_scores_source = "initial_framework_estimate"
-            logger.info("Quality gate mode=off: skipped critique/enhancement for all variants.")
+            logger.info("optimize.quality_gate_skipped", mode="off", run_id=run_id)
             return response
 
         if quality_gate_mode == "sample_one_variant":
@@ -198,11 +207,11 @@ class BaseOptimizerStrategy(ABC):
                 response.variants[idx].quality_evaluation = None
                 response.variants[idx].quality_scores_source = "not_evaluated"
                 response.variants[idx].tcrte_scores_source = "initial_framework_estimate"
-            logger.info("Quality gate mode=sample_one_variant: evaluating variant 1 only.")
+            logger.info("optimize.quality_gate_mode", mode="sample_one_variant", run_id=run_id)
 
         if quality_gate_mode == "critique_only":
             allow_enhancement = False
-            logger.info("Quality gate mode=critique_only: enhancement pass disabled.")
+            logger.info("optimize.quality_gate_mode", mode="critique_only", run_id=run_id)
 
         async def _critique_and_enhance_single_variant(variant_index: int) -> None:
             """Critique and optionally enhance one variant in-place."""
@@ -238,9 +247,12 @@ class BaseOptimizerStrategy(ABC):
                             was_enhanced = True
 
                             logger.info(
-                                "Variant %d ('%s') enhanced: score %d → quality gate %d",
-                                variant.id, variant.name,
-                                critique.overall_score, QUALITY_GATE_THRESHOLD,
+                                "optimize.quality_gate_enhanced",
+                                run_id=run_id,
+                                variant_id=variant.id,
+                                variant_name=variant.name,
+                                score=critique.overall_score,
+                                threshold=QUALITY_GATE_THRESHOLD,
                             )
 
                     # Step 3: Update the variant with real scores and enhanced prompt
@@ -279,21 +291,24 @@ class BaseOptimizerStrategy(ABC):
                     )
                     if critique.was_fallback:
                         logger.warning(
-                            "Quality gate fallback triggered for variant_id=%s variant_index=%s reason=%s",
-                            variant.id,
-                            variant_index,
-                            critique.reasoning or "unspecified",
+                            "optimize.quality_gate_fallback",
+                            run_id=run_id,
+                            variant_id=variant.id,
+                            variant_index=variant_index,
+                            reason=critique.reasoning or "unspecified",
                         )
 
             except Exception as variant_error:
                 logger.warning(
-                    "Quality critique failed for variant %d (%s). "
-                    "Returning original variant with explicit fallback metadata.",
-                    variant_index + 1, variant_error,
+                    "optimize.quality_gate_failed",
+                    run_id=run_id,
+                    variant_id=variant.id,
+                    variant_index=variant_index,
+                    error=str(variant_error),
                 )
                 variant.quality_evaluation = PromptQualityEvaluation(
                     status="failed",
-                    overall_score=0,
+                    overall_score=None,
                     grade=score_to_grade(0),
                     dimensions=PromptQualityDimensionScores(
                         role_clarity=0,
@@ -312,15 +327,22 @@ class BaseOptimizerStrategy(ABC):
                 variant.quality_scores_source = "fallback"
                 variant.tcrte_scores_source = "initial_framework_estimate"
                 logger.warning(
-                    "Quality gate hard failure for variant_id=%s variant_index=%s reason=%s",
-                    variant.id,
-                    variant_index,
-                    str(variant_error),
+                    "optimize.quality_gate_hard_failure",
+                    run_id=run_id,
+                    variant_id=variant.id,
+                    variant_index=variant_index,
+                    reason=str(variant_error),
                 )
 
         # Run selected variant critiques in parallel for minimal latency.
         await asyncio.gather(
             *(_critique_and_enhance_single_variant(idx) for idx in evaluated_variant_indices)
+        )
+        logger.info(
+            "optimize.quality_gate_completed",
+            run_id=run_id,
+            evaluated_variants=len(evaluated_variant_indices),
+            mode=quality_gate_mode,
         )
 
         return response

@@ -4,20 +4,23 @@ Chat API Route.
 POST /api/chat - Send a message to the AI chat assistant.
 """
 
-from fastapi import APIRouter, HTTPException
+import structlog
+from fastapi import APIRouter, HTTPException, Request
 
+from app.config import get_settings
 from app.models.requests import ChatRequest
-from app.models.responses import ChatResponse, ChatMessage
+from app.models.responses import ChatMessage, ChatResponse
+from app.observability.redaction import redact_sensitive_data
+from app.observability.request_context import get_request_id
 from app.services.llm_client import LLMClient, LLMClientError
 from app.services.prompt_builders import build_chat_system_prompt
-from app.config import get_settings
-
 
 router = APIRouter()
+logger = structlog.get_logger(__name__)
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest) -> ChatResponse:
+async def chat(request: ChatRequest, http_request: Request) -> ChatResponse:
     """
     Send a message to the AI chat assistant.
 
@@ -25,14 +28,18 @@ async def chat(request: ChatRequest) -> ChatResponse:
     gap data, answers) and can help refine prompts conversationally.
     """
     settings = get_settings()
+    request_id = get_request_id(http_request)
+    logger.info(
+        "chat.request_started",
+        request_id=request_id,
+        provider=request.provider,
+        model_id=request.model_id,
+        payload=redact_sensitive_data(request.model_dump()),
+    )
 
-    # Build system prompt with context
     system_prompt = build_chat_system_prompt(context=request.context)
 
-    # Build message history for the API call
     messages = []
-
-    # Add previous messages from history
     for msg in request.history:
         if msg.get("role") in ("user", "assistant") and msg.get("content"):
             messages.append({
@@ -40,13 +47,11 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 "content": msg["content"],
             })
 
-    # Add the new user message
     messages.append({
         "role": "user",
         "content": request.message,
     })
 
-    # Limit history to last 28 messages to prevent context overflow
     if len(messages) > 28:
         messages = messages[-28:]
 
@@ -60,6 +65,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 model=request.model_id,
             )
 
+        logger.info("chat.request_completed", request_id=request_id)
         return ChatResponse(
             message=ChatMessage(
                 role="assistant",
@@ -67,14 +73,25 @@ async def chat(request: ChatRequest) -> ChatResponse:
             )
         )
 
-    except LLMClientError as e:
-        status_code = e.status_code or 502
+    except LLMClientError as error:
+        status_code = error.status_code or 502
+        logger.warning(
+            "chat.llm_error",
+            request_id=request_id,
+            status_code=status_code,
+            error=str(error),
+        )
         raise HTTPException(
             status_code=status_code,
-            detail=f"LLM API error: {str(e)}",
+            detail=f"LLM API error: {str(error)}",
         )
-    except Exception as e:
+    except Exception as error:
+        logger.exception(
+            "chat.unexpected_error",
+            request_id=request_id,
+            error=str(error),
+        )
         raise HTTPException(
             status_code=500,
-            detail=f"Internal error: {str(e)}",
+            detail=f"Internal error: {str(error)}",
         )

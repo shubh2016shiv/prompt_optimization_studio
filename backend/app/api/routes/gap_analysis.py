@@ -15,19 +15,21 @@ gracefully to the LLM-generated scores without surfacing an error to the user.
 """
 
 import asyncio
-import logging
 
+import structlog
 from fastapi import APIRouter, HTTPException, Request
 
 from app.models.requests import GapAnalysisRequest
 from app.models.responses import GapAnalysisResponse
+from app.observability.redaction import redact_sensitive_data
+from app.observability.request_context import get_request_id
 from app.services.llm_client import LLMClient, LLMClientError
 from app.services.json_extractor import extract_json_from_llm_response, JSONExtractionError
 from app.services.prompt_builders import build_gap_analysis_prompt
 from app.services.scoring import score_tcrte
 from app.config import get_settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 router = APIRouter()
 
 
@@ -40,6 +42,15 @@ async def analyze_gaps(request: GapAnalysisRequest, http_request: Request) -> Ga
     questions, recommended optimization techniques, and complexity assessment.
     """
     settings = get_settings()
+    request_id = get_request_id(http_request)
+    payload = redact_sensitive_data(request.model_dump())
+    logger.info(
+        "gap_analysis.request_started",
+        request_id=request_id,
+        provider=request.provider,
+        model_id=request.model_id,
+        payload=payload,
+    )
 
     # ── Step 1: Pre-compute TCRTE scores at temperature=0 (deterministic) ─────
     # Run in parallel with prompt build since neither depends on the other.
@@ -55,7 +66,9 @@ async def analyze_gaps(request: GapAnalysisRequest, http_request: Request) -> Ga
             )
         except Exception as exc:
             logger.warning(
-                "TCRTE pre-scoring failed (%s); LLM-generated scores will be used.", exc
+                "gap_analysis.tcrte_prescore_failed",
+                request_id=request_id,
+                error=str(exc),
             )
             return None
 
@@ -72,6 +85,9 @@ async def analyze_gaps(request: GapAnalysisRequest, http_request: Request) -> Ga
     )
 
     precomputed_scores = await precomputed_scores_task
+    tcrte_scores_source = (
+        "openai_deterministic" if precomputed_scores is not None else "model_estimated"
+    )
 
     # If we have pre-computed scores, rebuild the prompt with them injected
     if precomputed_scores:
@@ -133,12 +149,30 @@ async def analyze_gaps(request: GapAnalysisRequest, http_request: Request) -> Ga
                 "overall_score", parsed_response.get("overall_score", 0)
             )
 
+        parsed_response["tcrte_scores_source"] = tcrte_scores_source
+        logger.info("gap_analysis.request_completed", request_id=request_id)
         return GapAnalysisResponse(**parsed_response)
 
     except LLMClientError as e:
         status_code = e.status_code or 502
+        logger.warning(
+            "gap_analysis.llm_error",
+            request_id=request_id,
+            status_code=status_code,
+            error=str(e),
+        )
         raise HTTPException(status_code=status_code, detail=f"LLM API error: {str(e)}")
     except JSONExtractionError as e:
+        logger.warning(
+            "gap_analysis.json_parse_error",
+            request_id=request_id,
+            error=str(e),
+        )
         raise HTTPException(status_code=502, detail=f"Failed to parse LLM response: {str(e)}")
     except Exception as e:
+        logger.exception(
+            "gap_analysis.unexpected_error",
+            request_id=request_id,
+            error=str(e),
+        )
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")

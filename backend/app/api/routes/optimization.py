@@ -2,61 +2,24 @@
 Optimization API Route.
 
 POST /api/optimize - Generate optimized prompt variants.
-
-ARCHITECTURE:
-═══════════════════════════════════════════════════════════════════════════════
-
-  ┌─────────────────────┐
-  │  POST /api/optimize │
-  └──────────┬──────────┘
-             │
-             ▼
-  ┌─────────────────────┐  Step 1: FRAMEWORK RESOLUTION
-  │  Framework Resolver  │  If framework == "auto", the deterministic Python
-  │                      │  framework selector (framework_selector.py) picks the
-  └──────────┬──────────┘  optimal framework based on task_type, complexity,
-             │              TCRTE scores, and model type. No LLM call needed.
-             ▼
-  ┌─────────────────────┐  Step 2: CORe HOP COUNT
-  │  Hop Counter         │  For frameworks that use context repetition (kernel,
-  │                      │  xml_structured, cot_ensemble), estimate the number
-  └──────────┬──────────┘  of reasoning hops via gpt-4.1-nano.
-             │
-             ▼
-  ┌─────────────────────┐  Step 3: kNN FEW-SHOT RETRIEVAL
-  │  kNN Retriever       │  For cot_ensemble, retrieve k=3 semantically similar
-  │                      │  examples from the pre-computed corpus using Gemini
-  └──────────┬──────────┘  embeddings. Falls back to LLM-generated examples.
-             │
-             ▼
-  ┌─────────────────────┐  Step 4: STRATEGY EXECUTION
-  │  OptimizerFactory    │  Factory resolves framework_id → Strategy class.
-  │  → Strategy.         │  Strategy.generate_variants() runs the framework
-  │    generate_variants │  algorithm and returns OptimizationResponse.
-  └─────────────────────┘
-
-DESIGN DECISIONS:
-  - All 8 frameworks (including TextGrad) go through the same Strategy pattern
-    pipeline. There are no separate code paths.
-  - The route is a thin orchestrator: it resolves the framework, computes
-    cross-cutting parameters (core_k, few_shot_examples), and delegates
-    ALL framework logic to the Strategy class.
 """
 
-import logging
 import os
 
+import structlog
 from fastapi import APIRouter, HTTPException, Request
 
 from app.models.requests import OptimizationRequest
 from app.models.responses import OptimizationResponse
-from app.services.llm_client import LLMClientError
+from app.observability.redaction import redact_sensitive_data
+from app.observability.request_context import get_request_id
+from app.services.analysis import count_reasoning_hops, select_framework
 from app.services.json_extractor import JSONExtractionError
-from app.services.analysis import select_framework, count_reasoning_hops
+from app.services.llm_client import LLMClientError
 from app.services.optimization import retrieve_k_nearest
 from app.services.optimization.base import OptimizerFactory
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 router = APIRouter()
 
 
@@ -65,16 +28,21 @@ async def optimize_prompt(request: OptimizationRequest, http_request: Request) -
     """
     Generate three optimized prompt variants (Conservative, Structured, Advanced).
 
-    This is the single unified pipeline for ALL 8 frameworks. The route handles:
-      1. Auto-select resolution (if framework == "auto")
-      2. CoRe hop counting (for applicable frameworks)
-      3. kNN few-shot retrieval (for cot_ensemble)
-      4. Strategy delegation via OptimizerFactory
-
-    All framework-specific logic lives inside the Strategy classes, not here.
+    The route resolves auto-framework selection, computes cross-cutting inputs
+    (CoRe hops and optional few-shot examples), and delegates framework logic to
+    strategy classes via OptimizerFactory.
     """
+    request_id = get_request_id(http_request)
+    payload = redact_sensitive_data(request.model_dump())
+    logger.info(
+        "optimize.request_started",
+        request_id=request_id,
+        provider=request.provider,
+        model_id=request.model_id,
+        framework=request.framework,
+        payload=payload,
+    )
 
-    # ── Step 1: Resolve framework — deterministic selector if "auto" ──────
     effective_framework = request.framework
     auto_reason: str | None = None
 
@@ -99,17 +67,26 @@ async def optimize_prompt(request: OptimizationRequest, http_request: Request) -
             provider=request.provider,
             recommended_techniques=techniques,
         )
-        logger.info("Auto-select chose framework=%s: %s", effective_framework, auto_reason)
+        logger.info(
+            "optimize.framework_selected",
+            request_id=request_id,
+            framework=effective_framework,
+            auto_reason=auto_reason,
+        )
 
-    # ── Step 2: CoRe hop count (for frameworks that use context repetition) ─
-    core_k = 2  # default: start + end
+    core_k = 2
     if effective_framework in ("kernel", "xml_structured", "cot_ensemble"):
         core_k = await count_reasoning_hops(
             raw_prompt=request.raw_prompt,
             api_key=request.api_key,
         )
+        logger.info(
+            "optimize.core_hops_computed",
+            request_id=request_id,
+            framework=effective_framework,
+            core_k=core_k,
+        )
 
-    # ── Step 3: kNN few-shot retrieval for cot_ensemble ───────────────────
     few_shot_examples = None
     few_shot_source = "not_applicable"
     if effective_framework == "cot_ensemble":
@@ -125,13 +102,20 @@ async def optimize_prompt(request: OptimizationRequest, http_request: Request) -
                     precomputed_corpus=corpus_state,
                     k=3,
                 )
-                logger.info("kNN retrieved %d examples for cot_ensemble.", len(few_shot_examples))
+                logger.info(
+                    "optimize.knn_retrieved",
+                    request_id=request_id,
+                    k=len(few_shot_examples),
+                )
                 if few_shot_examples:
                     few_shot_source = "knn"
         except Exception as knn_retrieval_error:
-            logger.warning("kNN retrieval failed (%s); strategy will generate synthetic examples.", knn_retrieval_error)
+            logger.warning(
+                "optimize.knn_retrieval_failed",
+                request_id=request_id,
+                error=str(knn_retrieval_error),
+            )
 
-    # ── Step 4: Strategy execution via Factory ────────────────────────────
     try:
         strategy = OptimizerFactory.get_optimizer(effective_framework)
 
@@ -143,15 +127,43 @@ async def optimize_prompt(request: OptimizationRequest, http_request: Request) -
         )
         response.analysis.few_shot_source = few_shot_source
 
+        run_id = response.run_metadata.run_id if response.run_metadata else None
+        logger.info(
+            "optimize.request_completed",
+            request_id=request_id,
+            run_id=run_id,
+            framework=effective_framework,
+            few_shot_source=few_shot_source,
+        )
         return response
 
     except ValueError as framework_not_found_error:
+        logger.warning(
+            "optimize.framework_not_found",
+            request_id=request_id,
+            error=str(framework_not_found_error),
+        )
         raise HTTPException(status_code=400, detail=str(framework_not_found_error))
     except LLMClientError as llm_error:
         status_code = llm_error.status_code or 502
+        logger.warning(
+            "optimize.llm_error",
+            request_id=request_id,
+            status_code=status_code,
+            error=str(llm_error),
+        )
         raise HTTPException(status_code=status_code, detail=f"LLM API error: {str(llm_error)}")
     except JSONExtractionError as json_error:
+        logger.warning(
+            "optimize.json_parse_error",
+            request_id=request_id,
+            error=str(json_error),
+        )
         raise HTTPException(status_code=502, detail=f"Failed to parse LLM response: {str(json_error)}")
     except Exception as unexpected_error:
-        logger.exception("Unexpected error in optimize_prompt")
+        logger.exception(
+            "optimize.unexpected_error",
+            request_id=request_id,
+            error=str(unexpected_error),
+        )
         raise HTTPException(status_code=500, detail=f"Internal error: {str(unexpected_error)}")

@@ -13,3 +13,6 @@ def test_health_includes_observability_fields():
     assert "judge_model" in body
     assert "openai_subtask_model" in body
     assert body["corpus_status"] in {"ready", "unavailable", "not_configured"}
+    assert "dependencies" in body
+    assert "openai_chat" in body["dependencies"]
+    assert "google_embeddings" in body["dependencies"]

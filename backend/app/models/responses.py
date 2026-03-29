@@ -47,6 +47,10 @@ class GapAnalysisResponse(BaseModel):
     """Complete gap analysis response."""
 
     tcrte: TCRTEScores = Field(..., description="TCRTE dimension scores")
+    tcrte_scores_source: Literal["openai_deterministic", "model_estimated"] = Field(
+        default="model_estimated",
+        description="Whether TCRTE scores came from the deterministic OpenAI scorer or from the model-generated fallback path.",
+    )
     overall_score: int = Field(..., ge=0, le=100, description="Overall coverage score")
     complexity: Literal["simple", "medium", "complex"] = Field(
         ..., description="Task complexity assessment"
@@ -92,7 +96,12 @@ class PromptQualityEvaluation(BaseModel):
         default="ok",
         description="Evaluation status: 'ok' when judge completed, 'degraded' when graceful fallback was used, and 'failed' when the quality evaluation crashed.",
     )
-    overall_score: int = Field(..., ge=0, le=100, description="Weighted average quality score")
+    overall_score: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=100,
+        description="Weighted average quality score. Null when evaluation failed hard and no trustworthy score exists.",
+    )
     grade: Literal["A", "B", "C", "D", "F"] = Field(..., description="Letter grade (A=90+, B=80+, C=70+, D=50+, F=<50)")
     dimensions: PromptQualityDimensionScores = Field(..., description="Per-dimension breakdown")
     strengths: list[str] = Field(..., description="What the prompt does well")

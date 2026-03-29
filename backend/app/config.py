@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     app_name: str = "APOST API"
     app_version: str = "4.0.0"
     debug: bool = False
+    log_level: str = "INFO"
+    health_probe_timeout_seconds: float = 5.0
 
     cors_origins: str = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173"
 

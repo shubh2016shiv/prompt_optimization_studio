@@ -6,11 +6,11 @@ Also manages application lifecycle: pre-computing the few-shot corpus embeddings
 at startup so they are ready for kNN retrieval without cold-start latency.
 """
 
-import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -18,8 +18,11 @@ from fastapi.responses import FileResponse
 
 from app.config import get_settings
 from app.api.routes import gap_analysis, optimization, chat
+from app.observability.logging_setup import setup_logging
+from app.observability.request_context import attach_request_context_middleware
+from app.services.health_checks import run_health_probes
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 @asynccontextmanager
@@ -67,6 +70,7 @@ async def lifespan(app: FastAPI):
 def create_application() -> FastAPI:
     """Create and configure the FastAPI application."""
     settings = get_settings()
+    setup_logging(settings.log_level)
 
     app = FastAPI(
         title=settings.app_name,
@@ -86,6 +90,7 @@ def create_application() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    attach_request_context_middleware(app)
 
     # Register API routes
     app.include_router(gap_analysis.router, prefix="/api", tags=["Gap Analysis"])
@@ -95,7 +100,7 @@ def create_application() -> FastAPI:
     # Health check endpoint
     @app.get("/api/health", tags=["Health"])
     async def health_check():
-        """Health check endpoint for container orchestration."""
+        """Health check endpoint with active dependency probes."""
         from app.services.evaluation.evaluation_rubric import LLM_JUDGE_MODEL
 
         corpus_ready = getattr(app.state, "few_shot_corpus", None) is not None
@@ -106,13 +111,15 @@ def create_application() -> FastAPI:
             corpus_status = "ready"
         else:
             corpus_status = "unavailable"
+        probe_results = await run_health_probes(settings=settings, corpus_ready=corpus_ready)
         return {
-            "status": "healthy",
+            "status": probe_results["status"],
             "version": settings.app_version,
             "knn_corpus_ready": corpus_ready,
             "judge_model": LLM_JUDGE_MODEL,
             "openai_subtask_model": settings.openai_subtask_model,
             "corpus_status": corpus_status,
+            "dependencies": probe_results["dependencies"],
         }
 
     # Serve static files (React build) in production
