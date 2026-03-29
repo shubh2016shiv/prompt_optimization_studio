@@ -501,11 +501,21 @@ OUTPUT FORMAT: {output_format}"""
             coverage_delta=compute_coverage_delta_description(request.gap_data, 85),
         )
 
-        return OptimizationResponse(
+        response = OptimizationResponse(
             analysis=analysis,
             techniques_applied=["CoT Ensemble", "Medprompt kNN", "Multi-Path Reasoning", "Self-Check"],
             variants=variants,
         )
+
+        # Quality gate: critique each variant, enhance weak ones, measure real scores
+        response = await self._refine_variants_with_quality_critique(
+            response=response,
+            raw_prompt=request.raw_prompt,
+            task_type=request.task_type,
+            api_key=request.api_key,
+        )
+
+        return response
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -42,7 +42,6 @@ from app.models.responses import (
 from app.services.llm_client import LLMClient
 from app.services.json_extractor import extract_json_from_llm_response
 from app.services.optimization.base import BaseOptimizerStrategy
-from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +82,6 @@ class KernelOptimizer(BaseOptimizerStrategy):
         few_shot_examples: Optional[List[Any]] = None,
         auto_reason: Optional[str] = None,
     ) -> OptimizationResponse:
-        
-        settings = get_settings()
         
         logger.info(f"Running KERNEL optimization on prompt (len={len(request.raw_prompt)})")
 
@@ -223,11 +220,21 @@ OUTPUT SCHEMA
             auto_reason=auto_reason
         )
 
-        return OptimizationResponse(
+        response = OptimizationResponse(
             analysis=analysis,
             techniques_applied=["LLM-Parsing", "Python-Assembly", "KERNEL-Structure"],
             variants=variants
         )
+
+        # Quality gate: critique each variant, enhance weak ones, measure real scores
+        response = await self._refine_variants_with_quality_critique(
+            response=response,
+            raw_prompt=request.raw_prompt,
+            task_type=request.task_type,
+            api_key=request.api_key,
+        )
+
+        return response
 
     def _bullet_join(self, items: List[str]) -> str:
         if not items:

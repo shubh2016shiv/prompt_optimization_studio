@@ -41,7 +41,6 @@ from app.models.responses import (
 from app.services.llm_client import LLMClient
 from app.services.json_extractor import extract_json_from_llm_response
 from app.services.optimization.base import BaseOptimizerStrategy
-from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -223,8 +222,18 @@ You must strictly maintain this persona for the duration of the request.
             auto_reason=auto_reason
         )
 
-        return OptimizationResponse(
+        response = OptimizationResponse(
             analysis=analysis,
             techniques_applied=["CREATE Iterative Steps", "Persona Locking"],
             variants=variants
         )
+
+        # Quality gate: critique each variant, enhance weak ones, measure real scores
+        response = await self._refine_variants_with_quality_critique(
+            response=response,
+            raw_prompt=request.raw_prompt,
+            task_type=request.task_type,
+            api_key=request.api_key,
+        )
+
+        return response

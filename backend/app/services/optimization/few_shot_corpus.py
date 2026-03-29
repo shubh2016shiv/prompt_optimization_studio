@@ -1,27 +1,46 @@
 """
 Medprompt Few-Shot Corpus — Curated Prompt Transformation Examples
 
-This module provides the static example pairs used by the Medprompt-inspired kNN
-few-shot retrieval system (see knn_retriever.py). Each entry contains a raw
-under-specified prompt and its gold-standard optimized system prompt along with a
-reasoning trace that explains the transformation decisions made.
+This module provides the hardcoded, static example pairs used by the Medprompt-inspired kNN
+few-shot retrieval system (see knn_retriever.py). It serves as the foundation for the
+optimization process.
 
-The examples are organized by task_type so that the kNN retriever filters to the
-correct subset before computing semantic similarity. This prevents a coding example
-from being retrieved for a creative writing task, even if the surface-level wording
-happens to be similar.
+Why is this hardcoded corpus needed for optimization?
 
-Rationale for curation: the Medprompt paper (Nori et al., 2023, "Can Generalist
-Foundation Models Outcompete Special-Purpose Tuning?") showed that the quality of
-few-shot demonstrations is the primary driver of few-shot performance gains.
-Dynamically retrieved demonstrations consistently outperform static hand-picked sets
-because the semantic distance between the query and the retrieved example correlates
-with the likelihood that the same transformation pattern applies. This corpus is the
-foundation of that retrieval — its quality directly caps the quality of optimized
-prompts the system can produce for the cot_ensemble framework.
+1. Powers Few-Shot Learning (kNN Retrieval)
+   Instead of just instructing the LLM to "optimize this prompt," the system dynamically
+   searches this corpus to find the most semantically similar examples (k-Nearest Neighbors)
+   to the user's task. Providing high-quality, relevant examples dynamically significantly
+   improves the model's ability to generate a high-quality optimized prompt.
 
-Extending the corpus: add entries to the appropriate task_type list using the
-same dict structure. The knn_retriever will automatically embed and index new entries
+2. Establishes "Gold Standard" Patterns
+   Each entry contains a raw prompt, an optimized system prompt, and a reasoning trace.
+   The reasoning trace teaches the LLM the underlying principles of good prompt engineering
+   (e.g., adding roles, constraints, formats, and anti-hallucination guardrails) rather
+   than just showing the final output.
+
+3. Prevents Cross-Domain Contamination
+   The examples are organized by `task_type` (e.g., reasoning, coding, analysis) so that
+   the kNN retriever filters to the correct subset before computing semantic similarity.
+   This ensures a coding example isn't retrieved for a creative writing task, avoiding
+   confusion and degradation of the output.
+
+Rationale for curation: As shown in the Medprompt paper (Nori et al., 2023), the quality
+of few-shot demonstrations is the primary driver of performance gains. The quality of
+this corpus directly caps the quality of optimized prompts the system can produce for
+the cot_ensemble framework.
+
+Example of how it works in practice:
+If a user submits the request: "Write a function to sort some numbers" (task_type: coding).
+Instead of just asking the LLM to optimize this, the kNN retriever searches the "coding"
+category in this file. It retrieves the _CODING example mapping "Write a function that
+processes data." to its optimized system prompt and reasoning trace.
+The LLM is then given the user's request ALONG WITH the retrieved example to demonstrate
+exactly how a vague coding prompt should be transformed into a rigorous system prompt.
+This dynamically teaches the model the exact transformation pattern needed for this domain.
+
+Extending the corpus: add entries to the appropriate task_type list using the same
+dict structure. The knn_retriever will automatically embed and index new entries
 on the next server startup without any code changes.
 """
 

@@ -69,6 +69,7 @@ REFERENCES:
   - APOST_v4_Documentation.md §4.5
 """
 
+import asyncio
 import logging
 from typing import Any, List, Optional
 
@@ -361,32 +362,35 @@ class TextGradIterativeOptimizer(BaseOptimizerStrategy):
                 )
 
                 try:
-                    # Step 2: Forward pass — evaluate
-                    evaluation_result = await self._evaluate_prompt_against_tcrte_rubric(
-                        current_prompt=current_prompt,
-                        llm_client=llm_client,
-                        provider=request.provider,
-                        model_id=request.model_id,
-                    )
-                    final_evaluation = evaluation_result
+                    # 60-second guard per full iteration (evaluate + localise + rewrite)
+                    # prevents a single slow API call from blocking the entire request
+                    async with asyncio.timeout(60):
+                        # Step 2: Forward pass — evaluate
+                        evaluation_result = await self._evaluate_prompt_against_tcrte_rubric(
+                            current_prompt=current_prompt,
+                            llm_client=llm_client,
+                            provider=request.provider,
+                            model_id=request.model_id,
+                        )
+                        final_evaluation = evaluation_result
 
-                    # Step 3: Backward pass — localise gradient
-                    gradient_result = await self._localise_gradient_to_text_spans(
-                        current_prompt=current_prompt,
-                        evaluation_critique=evaluation_result,
-                        llm_client=llm_client,
-                        provider=request.provider,
-                        model_id=request.model_id,
-                    )
+                        # Step 3: Backward pass — localise gradient
+                        gradient_result = await self._localise_gradient_to_text_spans(
+                            current_prompt=current_prompt,
+                            evaluation_critique=evaluation_result,
+                            llm_client=llm_client,
+                            provider=request.provider,
+                            model_id=request.model_id,
+                        )
 
-                    # Step 4: Update step — rewrite
-                    rewritten_prompt = await self._apply_gradient_edits_to_prompt(
-                        current_prompt=current_prompt,
-                        gradient_edits=gradient_result,
-                        llm_client=llm_client,
-                        provider=request.provider,
-                        model_id=request.model_id,
-                    )
+                        # Step 4: Update step — rewrite
+                        rewritten_prompt = await self._apply_gradient_edits_to_prompt(
+                            current_prompt=current_prompt,
+                            gradient_edits=gradient_result,
+                            llm_client=llm_client,
+                            provider=request.provider,
+                            model_id=request.model_id,
+                        )
 
                     # Save checkpoint and advance
                     checkpoints.append(rewritten_prompt)
@@ -396,6 +400,13 @@ class TextGradIterativeOptimizer(BaseOptimizerStrategy):
                         "TextGrad iteration %d complete. Checkpoint saved (%d chars).",
                         iteration_number, len(rewritten_prompt),
                     )
+
+                except TimeoutError:
+                    logger.warning(
+                        "TextGrad iteration %d timed out after 60s. Saving current state as checkpoint.",
+                        iteration_number,
+                    )
+                    checkpoints.append(current_prompt)
 
                 except Exception as iteration_error:
                     logger.warning(
@@ -465,11 +476,21 @@ class TextGradIterativeOptimizer(BaseOptimizerStrategy):
             coverage_delta=compute_coverage_delta_description(request.gap_data, None),
         )
 
-        return OptimizationResponse(
+        response = OptimizationResponse(
             analysis=analysis,
             techniques_applied=["TextGrad", "TCRTE-Loss", "Iterative Backpropagation"],
             variants=variants,
         )
+
+        # Quality gate: critique each variant, enhance weak ones, measure real scores
+        response = await self._refine_variants_with_quality_critique(
+            response=response,
+            raw_prompt=request.raw_prompt,
+            task_type=request.task_type,
+            api_key=request.api_key,
+        )
+
+        return response
 
 
 # ══════════════════════════════════════════════════════════════════════════════

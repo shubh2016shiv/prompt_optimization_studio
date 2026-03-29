@@ -185,8 +185,18 @@ FORMAT
             auto_reason=auto_reason
         )
 
-        return OptimizationResponse(
+        response = OptimizationResponse(
             analysis=analysis,
             techniques_applied=["CoT Suppression", "Declarative Declarations"],
             variants=variants
         )
+
+        # Quality gate: critique each variant, enhance weak ones, measure real scores
+        response = await self._refine_variants_with_quality_critique(
+            response=response,
+            raw_prompt=request.raw_prompt,
+            task_type=request.task_type,
+            api_key=request.api_key,
+        )
+
+        return response
