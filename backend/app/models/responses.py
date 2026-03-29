@@ -88,9 +88,9 @@ class PromptQualityDimensionScores(BaseModel):
 class PromptQualityEvaluation(BaseModel):
     """Quality evaluation result attached to each variant by the internal critic."""
 
-    status: Literal["ok", "degraded"] = Field(
+    status: Literal["ok", "degraded", "failed"] = Field(
         default="ok",
-        description="Evaluation status: 'ok' when judge completed, 'degraded' when graceful fallback was used.",
+        description="Evaluation status: 'ok' when judge completed, 'degraded' when graceful fallback was used, and 'failed' when the quality evaluation crashed.",
     )
     overall_score: int = Field(..., ge=0, le=100, description="Weighted average quality score")
     grade: Literal["A", "B", "C", "D", "F"] = Field(..., description="Letter grade (A=90+, B=80+, C=70+, D=50+, F=<50)")
@@ -157,6 +157,21 @@ class OptimizationAnalysis(BaseModel):
         default=None,
         description="Human-readable explanation of why auto-select chose this framework.",
     )
+    few_shot_source: Literal["knn", "synthetic", "not_applicable"] = Field(
+        default="not_applicable",
+        description="Provenance for few-shot examples used by cot_ensemble.",
+    )
+
+
+class OptimizationRunMetadata(BaseModel):
+    """Audit metadata for a single optimization execution."""
+
+    run_id: str = Field(..., description="Unique optimization run identifier (UUID4).")
+    raw_prompt_hash: str = Field(..., description="SHA256 hash of the raw prompt.")
+    framework: str = Field(..., description="Effective framework used for optimization.")
+    judge_model: str = Field(..., description="Model used by the internal quality judge.")
+    target_model: str = Field(..., description="User-selected target model for optimization.")
+    timestamp: str = Field(..., description="UTC ISO8601 timestamp for the run.")
 
 
 class OptimizationResponse(BaseModel):
@@ -167,6 +182,10 @@ class OptimizationResponse(BaseModel):
         ..., description="List of techniques applied (CoRe, RAL-Writer, etc.)"
     )
     variants: list[PromptVariant] = Field(..., description="The three optimized variants")
+    run_metadata: Optional[OptimizationRunMetadata] = Field(
+        default=None,
+        description="Execution metadata for observability and auditability.",
+    )
 
 
 # Chat Response Models

@@ -111,7 +111,9 @@ async def optimize_prompt(request: OptimizationRequest, http_request: Request) -
 
     # ── Step 3: kNN few-shot retrieval for cot_ensemble ───────────────────
     few_shot_examples = None
+    few_shot_source = "not_applicable"
     if effective_framework == "cot_ensemble":
+        few_shot_source = "synthetic"
         try:
             corpus_state = getattr(http_request.app.state, "few_shot_corpus", None)
             google_key = os.getenv("GOOGLE_API_KEY")
@@ -124,6 +126,8 @@ async def optimize_prompt(request: OptimizationRequest, http_request: Request) -
                     k=3,
                 )
                 logger.info("kNN retrieved %d examples for cot_ensemble.", len(few_shot_examples))
+                if few_shot_examples:
+                    few_shot_source = "knn"
         except Exception as knn_retrieval_error:
             logger.warning("kNN retrieval failed (%s); strategy will generate synthetic examples.", knn_retrieval_error)
 
@@ -137,6 +141,7 @@ async def optimize_prompt(request: OptimizationRequest, http_request: Request) -
             few_shot_examples=few_shot_examples,
             auto_reason=auto_reason,
         )
+        response.analysis.few_shot_source = few_shot_source
 
         return response
 

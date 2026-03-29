@@ -96,11 +96,23 @@ def create_application() -> FastAPI:
     @app.get("/api/health", tags=["Health"])
     async def health_check():
         """Health check endpoint for container orchestration."""
+        from app.services.evaluation.evaluation_rubric import LLM_JUDGE_MODEL
+
         corpus_ready = getattr(app.state, "few_shot_corpus", None) is not None
+        google_key_present = bool(os.getenv("GOOGLE_API_KEY"))
+        if not google_key_present:
+            corpus_status = "not_configured"
+        elif corpus_ready:
+            corpus_status = "ready"
+        else:
+            corpus_status = "unavailable"
         return {
             "status": "healthy",
             "version": settings.app_version,
             "knn_corpus_ready": corpus_ready,
+            "judge_model": LLM_JUDGE_MODEL,
+            "openai_subtask_model": settings.openai_subtask_model,
+            "corpus_status": corpus_status,
         }
 
     # Serve static files (React build) in production
