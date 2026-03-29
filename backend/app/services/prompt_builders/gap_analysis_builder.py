@@ -53,7 +53,7 @@ def build_gap_analysis_prompt(
         overall = precomputed_tcrte.get("overall_score", 0)
         ground_truth_block = f"""
 PRE-COMPUTED TCRTE SCORES (GROUND TRUTH from a deterministic rubric model — DO NOT change these numbers):
-Overall (average of five dimensions): {overall}
+Overall (weighted average of the five dimensions; Task and Execution carry higher weight per §3.3): {overall}
 Per-dimension JSON (copy the "score" and "note" values EXACTLY into your response "tcrte" object for each key task, context, role, tone, execution):
 {ground_truth_json}
 
