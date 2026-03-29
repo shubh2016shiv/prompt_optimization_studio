@@ -1,18 +1,21 @@
-"""
-Shared helpers for sample_usage scripts.
+﻿"""
+Purpose:
+  Provide shared runtime utilities for all sample_usage scripts.
 
-Loads environment from backend/.env (python-dotenv). Endpoints expect the same
-per-request API key pattern as the React UI: the key for the provider you choose.
+Scope:
+  - Environment loading from backend/.env.
+  - Provider/model/api-key resolution.
+  - HTTP request helper and JSON printing utility.
 
-Environment variables (optional overrides):
-  APOST_SAMPLE_BASE_URL   — default http://127.0.0.1:8000
-  APOST_TEST_API_KEY      — preferred single key for scripts
-  APOST_TEST_PROVIDER     — anthropic | openai | google (default: openai)
-  APOST_TEST_MODEL_ID     — model id string for that provider
-  APOST_TEST_MODEL_LABEL  — human label for gap-analysis request
+Method:
+  - Resolve defaults from environment variables.
+  - Standardize request behavior so scripts stay consistent.
 
-If APOST_TEST_API_KEY is unset, falls back to OPENAI_API_KEY, then ANTHROPIC_API_KEY,
-then GOOGLE_API_KEY / GEMINI_API_KEY depending on provider.
+Artifacts:
+  - Runtime helper functions (no file outputs directly).
+
+Run:
+  Imported by all sample_usage runner scripts.
 """
 
 from __future__ import annotations
@@ -129,3 +132,5 @@ def print_json(title: str, obj: object) -> None:
     print(json.dumps(obj, indent=2, ensure_ascii=False)[:8000])
     if isinstance(obj, str) and len(obj) > 8000:
         print("... [truncated]")
+
+

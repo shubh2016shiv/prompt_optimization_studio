@@ -1,21 +1,22 @@
-"""
-Step 4 — Refinement (doc §7.6–7.7): POST /api/chat
+﻿"""
+Purpose:
+  Validate chat refinement endpoint behavior with context-rich payloads.
 
-Pipeline stitch:
-  - build_chat_system_prompt (chat_system_builder.py) serializes session context:
-    raw prompt, framework, task_type, gap_data, optimization variants, answers.
-  - chat route trims history to the last 28 messages (same as doc / frontend).
-  - LLMClient.call_chat sends provider-specific chat completions.
+Scope:
+  - Calls POST /api/chat.
+  - Verifies assistant message contract and non-empty response content.
 
-This script sends a context object shaped like the frontend ChatContext (see
-frontend/src/types/chat.types.ts): the assistant can reference gap scores and
-variant bodies when answering.
+Method:
+  - Build frontend-like chat context using scenario + optimize artifacts.
+  - Send targeted prompt-refinement instruction.
+  - Assert role/content response fields.
+
+Artifacts:
+  - Console output only.
 
 Run:
-  python sample_usage/04_chat.py [path/to/optimize_response.json]
-
-Without a file, uses inline minimal context so the chat still runs; with a file,
-passes real variants from a prior optimize call.
+  python sample_usage/pipeline_chat_refinement_check.py
+  python sample_usage/pipeline_chat_refinement_check.py path/to/optimize_response.json
 """
 
 from __future__ import annotations
@@ -24,8 +25,12 @@ import json
 import sys
 from pathlib import Path
 
-from common import http_json, require_api_key, test_model_id, test_provider
-from fixtures_healthcare import INPUT_VARIABLES, RAW_PROMPT, SAMPLE_GAP_ANSWERS, TASK_TYPE
+from sample_runtime import http_json, require_api_key, test_model_id, test_provider
+from healthcare_prompt_scenarios import (
+    PIPELINE_CASE_ID,
+    PIPELINE_SAMPLE_GAP_ANSWERS,
+    get_prompt_case,
+)
 
 
 def _minimal_result() -> dict:
@@ -101,6 +106,7 @@ def _minimal_gap() -> dict:
 
 def main() -> int:
     api_key = require_api_key()
+    case = get_prompt_case(PIPELINE_CASE_ID)
 
     result: dict
     if len(sys.argv) > 1:
@@ -110,21 +116,19 @@ def main() -> int:
 
     gap_data = _minimal_gap()
 
-    # Step 1: Context seeding — mirrors UI passing full session into /api/chat.
     context = {
-        "raw_prompt": RAW_PROMPT,
-        "variables": INPUT_VARIABLES,
+        "raw_prompt": case["raw_prompt"],
+        "variables": case["input_variables"],
         "framework": "kernel",
-        "task_type": TASK_TYPE,
+        "task_type": case["task_type"],
         "provider": test_provider(),
         "model": {"id": test_model_id(), "label": test_model_id(), "reasoning": False},
         "is_reasoning": False,
         "gap_data": gap_data,
-        "answers": SAMPLE_GAP_ANSWERS,
+        "answers": PIPELINE_SAMPLE_GAP_ANSWERS,
         "result": result,
     }
 
-    # Step 2: User message asks for a concrete refinement tied to LOINC / Variant 2.
     body = {
         "message": (
             "For Variant 2 (Structured), tighten instructions so every lab row must "
@@ -158,3 +162,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

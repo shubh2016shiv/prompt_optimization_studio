@@ -1,24 +1,22 @@
-"""
-Step 3 — Phase 3 (doc §7.4–7.5): POST /api/optimize
+﻿"""
+Purpose:
+  Validate optimization endpoint behavior and response contract.
 
-Pipeline stitch:
-  - framework="auto" → analysis.framework_selector.select_framework uses task_type,
-    complexity, TCRTE overall from gap_data, provider, recommended_techniques.
-  - Effective framework may trigger hop_counter.count_reasoning_hops for CoRe (core_k)
-    when using core / xml_structured / cot_ensemble.
-  - framework="cot_ensemble" → knn_retriever.retrieve_k_nearest if GOOGLE_API_KEY + corpus.
-  - framework="textgrad" → textgrad_optimizer.run_textgrad_optimization (separate path).
-  - Default path → build_optimizer_prompt + LLM JSON → OptimizationResponse.
+Scope:
+  - Calls POST /api/optimize with kernel (required) and auto (optional).
+  - Verifies three-variant output shape and score fields.
 
-This script:
-  1) Optionally loads gap JSON from a file path in argv[1]; else runs a minimal inline
-     gap_data stub so auto-select has signals (overall_score, complexity, techniques).
-  2) Calls optimize with framework=kernel first (stable meta-prompt path).
-  3) Optionally second call with framework=auto when RUN_AUTO=1 in environment.
+Method:
+  - Use centralized scenario data and optional prior gap artifact.
+  - Assert analysis, techniques, variant prompts, and TCRTE score blocks.
+  - Persist optimized output for downstream chat refinement check.
+
+Artifacts:
+  - sample_usage/_last_optimize.json
 
 Run:
-  python sample_usage/03_optimize.py
-  python sample_usage/03_optimize.py path/to/gap_response.json
+  python sample_usage/pipeline_optimize_check.py
+  python sample_usage/pipeline_optimize_check.py path/to/gap_response.json
 """
 
 from __future__ import annotations
@@ -28,12 +26,15 @@ import os
 import sys
 from pathlib import Path
 
-from common import http_json, print_json, require_api_key, test_model_id, test_model_label, test_provider
-from fixtures_healthcare import INPUT_VARIABLES, RAW_PROMPT, SAMPLE_GAP_ANSWERS, TASK_TYPE
+from sample_runtime import http_json, print_json, require_api_key, test_model_id, test_model_label, test_provider
+from healthcare_prompt_scenarios import (
+    PIPELINE_CASE_ID,
+    PIPELINE_SAMPLE_GAP_ANSWERS,
+    get_prompt_case,
+)
 
 
 def _minimal_gap_data() -> dict:
-    """Enough structure for auto-select + optimizer context when no prior gap file."""
     return {
         "tcrte": {
             "task": {"score": 55, "status": "weak", "note": "stub"},
@@ -71,17 +72,18 @@ def _assert_optimize(data: dict) -> None:
 
 def _one_optimize(*, framework: str, gap_data: dict) -> dict:
     api_key = require_api_key()
+    case = get_prompt_case(PIPELINE_CASE_ID)
     body = {
-        "raw_prompt": RAW_PROMPT,
-        "input_variables": INPUT_VARIABLES,
-        "task_type": TASK_TYPE,
+        "raw_prompt": case["raw_prompt"],
+        "input_variables": case["input_variables"],
+        "task_type": case["task_type"],
         "framework": framework,
         "provider": test_provider(),
         "model_id": test_model_id(),
         "model_label": test_model_label(),
         "is_reasoning_model": False,
         "gap_data": gap_data,
-        "answers": SAMPLE_GAP_ANSWERS,
+        "answers": PIPELINE_SAMPLE_GAP_ANSWERS,
         "api_key": api_key,
     }
     status, data, raw = http_json("POST", "/api/optimize", json_body=body, timeout=300.0)
@@ -100,7 +102,6 @@ def main() -> int:
     else:
         gap_data = _minimal_gap_data()
 
-    # Step 1: kernel framework — exercises standard build_optimizer_prompt + JSON parse.
     try:
         res_kernel = _one_optimize(framework="kernel", gap_data=gap_data)
         _assert_optimize(res_kernel)
@@ -113,7 +114,6 @@ def main() -> int:
     art.write_text(json.dumps(res_kernel, indent=2), encoding="utf-8")
     print("Wrote", art)
 
-    # Step 2: optional auto — exercises framework_selector.py inside optimization route.
     if os.environ.get("RUN_AUTO", "").strip() in ("1", "true", "yes"):
         try:
             res_auto = _one_optimize(framework="auto", gap_data=gap_data)
@@ -129,3 +129,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
