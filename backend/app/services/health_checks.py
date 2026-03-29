@@ -27,9 +27,11 @@ async def run_health_probes(
     openai_result = await _probe_openai(settings=settings)
     google_result = await _probe_google_embeddings(settings=settings)
 
-    dependency_states = [openai_result["status"], google_result["status"]]
+    # Overall health should reflect hard failures of core request-serving
+    # dependencies. Transient or optional probe degradation should not cause
+    # flaky "unhealthy" signals.
     overall_status = "healthy"
-    if "down" in dependency_states:
+    if openai_result["status"] == "down":
         overall_status = "degraded"
 
     dependency_status = {
@@ -108,6 +110,16 @@ async def _probe_google_embeddings(*, settings: Settings) -> dict[str, Any]:
         latency_ms = round((perf_counter() - started) * 1000, 2)
         if response.status_code == 200:
             return {"status": "ok", "latency_ms": latency_ms}
+        if response.status_code == 429:
+            # Quota/rate-limit responses are often transient. Report as degraded
+            # so operators see pressure without flapping global health status.
+            return {
+                "status": "degraded",
+                "latency_ms": latency_ms,
+                "status_code": response.status_code,
+                "error": "rate_limited",
+                "transient": True,
+            }
         return {
             "status": "down",
             "latency_ms": latency_ms,
@@ -117,4 +129,3 @@ async def _probe_google_embeddings(*, settings: Settings) -> dict[str, Any]:
     except Exception as exc:
         latency_ms = round((perf_counter() - started) * 1000, 2)
         return {"status": "down", "latency_ms": latency_ms, "error": str(exc)}
-
