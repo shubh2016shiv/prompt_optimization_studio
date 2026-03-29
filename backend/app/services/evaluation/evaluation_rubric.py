@@ -101,6 +101,9 @@ You must be STRICT and OBJECTIVE. Return ONLY valid JSON matching the exact sche
 
 CRITIQUE_USER_PROMPT_TEMPLATE = """Evaluate this OPTIMISED system prompt against the ORIGINAL raw prompt.
 
+=== TASK TYPE ===
+{task_type}
+
 === ORIGINAL RAW PROMPT (user wrote this) ===
 {raw_prompt}
 

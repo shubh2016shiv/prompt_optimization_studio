@@ -88,12 +88,20 @@ class PromptQualityDimensionScores(BaseModel):
 class PromptQualityEvaluation(BaseModel):
     """Quality evaluation result attached to each variant by the internal critic."""
 
+    status: Literal["ok", "degraded"] = Field(
+        default="ok",
+        description="Evaluation status: 'ok' when judge completed, 'degraded' when graceful fallback was used.",
+    )
     overall_score: int = Field(..., ge=0, le=100, description="Weighted average quality score")
     grade: Literal["A", "B", "C", "D", "F"] = Field(..., description="Letter grade (A=90+, B=80+, C=70+, D=50+, F=<50)")
     dimensions: PromptQualityDimensionScores = Field(..., description="Per-dimension breakdown")
     strengths: list[str] = Field(..., description="What the prompt does well")
     remaining_gaps: list[str] = Field(..., description="Weaknesses still present after enhancement")
     was_enhanced: bool = Field(..., description="True if the variant was improved by the critic")
+    was_fallback: bool = Field(
+        default=False,
+        description="True when evaluation gracefully degraded and the judge did not complete reliably.",
+    )
 
 
 class PromptVariant(BaseModel):
@@ -109,8 +117,24 @@ class PromptVariant(BaseModel):
     )
     token_estimate: int = Field(..., ge=0, description="Estimated token count")
     tcrte_scores: VariantTCRTEScores = Field(..., description="TCRTE coverage scores")
+    tcrte_scores_source: Literal[
+        "initial_framework_estimate",
+        "quality_critic_proxy",
+        "not_evaluated",
+    ] = Field(
+        default="initial_framework_estimate",
+        description="Where tcrte_scores came from (framework estimate vs quality-critic proxy).",
+    )
     quality_evaluation: Optional[PromptQualityEvaluation] = Field(
         default=None, description="Quality evaluation from the internal PromptQualityCritic"
+    )
+    quality_scores_source: Literal[
+        "prompt_quality_critic",
+        "fallback",
+        "not_evaluated",
+    ] = Field(
+        default="not_evaluated",
+        description="Where quality_evaluation came from, or not_evaluated when quality gate did not run.",
     )
     strengths: list[str] = Field(..., description="Key strengths of this variant")
     best_for: str = Field(..., description="Use cases this variant is best suited for")

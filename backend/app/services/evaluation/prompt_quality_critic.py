@@ -17,8 +17,8 @@ DESIGN DECISIONS:
     self-evaluation bias.
   - Binary checklist decomposition (not direct 1-100 rating) because research shows
     ~40% higher human-alignment with decomposed evaluation.
-  - Graceful degradation: if any LLM call fails, returns a default CritiqueResult
-    that passes the quality gate (never blocks the user).
+  - Graceful degradation: if any LLM call fails, returns an explicit fallback
+    CritiqueResult (was_fallback=True) instead of synthetic passing scores.
 
 USAGE (inside a framework optimizer):
     critic = PromptQualityCritic()
@@ -87,11 +87,12 @@ class PromptQualityCritic:
 
         Returns:
             CritiqueResult with scores, weaknesses, and enhancement suggestions.
-            On failure, returns a default result that passes the quality gate.
+            On failure, returns a fallback result with was_fallback=True.
         """
         critique_user_prompt = CRITIQUE_USER_PROMPT_TEMPLATE.format(
             raw_prompt=raw_prompt.strip(),
             system_prompt=system_prompt.strip(),
+            task_type=task_type,
         )
 
         try:
@@ -101,6 +102,7 @@ class PromptQualityCritic:
                 max_tokens=MAX_TOKENS_CRITIQUE,
                 model=LLM_JUDGE_MODEL,
                 system=CRITIQUE_SYSTEM_PROMPT,
+                temperature=0.0,
             )
 
             parsed_response = extract_json_from_llm_response(judge_response_text)
@@ -109,10 +111,12 @@ class PromptQualityCritic:
         except Exception as critique_error:
             logger.warning(
                 "PromptQualityCritic.critique_prompt() failed (%s). "
-                "Returning default passing result to avoid blocking the user.",
+                "Returning fallback result.",
                 critique_error,
             )
-            return self._create_default_passing_result()
+            return self._create_fallback_result(
+                reason=f"Critique unavailable: {critique_error}"
+            )
 
     # ──────────────────────────────────────────────────────────────────────
     # Public Method 2: Enhance a prompt based on critique
@@ -164,6 +168,7 @@ class PromptQualityCritic:
                 max_tokens=MAX_TOKENS_ENHANCEMENT,
                 model=LLM_JUDGE_MODEL,
                 system=ENHANCEMENT_SYSTEM_PROMPT,
+                temperature=0.0,
             )
 
             # Validate that the enhancement didn't return empty or truncated
@@ -217,7 +222,7 @@ class PromptQualityCritic:
 
         # Sanity check: if ALL dimensions parsed to 0, the judge response was
         # likely malformed (empty dimensions dict, wrong key names, etc.).
-        # Return the default passing result rather than a bogus all-zero critique.
+        # Return an explicit fallback result rather than a bogus all-zero critique.
         all_zero = all(
             score == 0
             for score in [
@@ -233,9 +238,11 @@ class PromptQualityCritic:
         if all_zero:
             logger.warning(
                 "All dimension scores parsed to 0 — likely malformed judge response. "
-                "Falling back to default passing result."
+                "Falling back to explicit degraded result."
             )
-            return self._create_default_passing_result()
+            return self._create_fallback_result(
+                reason="Critique response malformed: parsed all-zero dimensions."
+            )
 
         overall_score = self._compute_weighted_overall_score(dimensions)
 
@@ -247,6 +254,7 @@ class PromptQualityCritic:
             strengths=parsed_json.get("strengths", []),
             reasoning=parsed_json.get("reasoning", ""),
             passed_quality_gate=overall_score >= QUALITY_GATE_THRESHOLD,
+            was_fallback=False,
         )
 
     def _compute_weighted_overall_score(self, dimensions: DimensionScores) -> int:
@@ -283,29 +291,30 @@ class PromptQualityCritic:
     # Internal: Default result when critique fails
     # ──────────────────────────────────────────────────────────────────────
 
-    def _create_default_passing_result(self) -> CritiqueResult:
+    def _create_fallback_result(self, reason: str) -> CritiqueResult:
         """
-        Return a default CritiqueResult that passes the quality gate.
+        Return a fallback CritiqueResult when evaluation cannot be trusted.
 
-        Used when the judge LLM call fails — ensures the optimization
-        pipeline never blocks on a critique failure.
+        Used when the judge LLM call or parsing fails. This keeps the
+        optimization pipeline alive while making degradation explicit.
         """
         return CritiqueResult(
-            overall_score=QUALITY_GATE_THRESHOLD,
+            overall_score=0,
             dimensions=DimensionScores(
-                role_clarity=QUALITY_GATE_THRESHOLD,
-                task_specificity=QUALITY_GATE_THRESHOLD,
-                constraint_completeness=QUALITY_GATE_THRESHOLD,
-                output_format=QUALITY_GATE_THRESHOLD,
-                hallucination_resistance=QUALITY_GATE_THRESHOLD,
-                edge_case_handling=QUALITY_GATE_THRESHOLD,
-                improvement_over_raw=QUALITY_GATE_THRESHOLD,
+                role_clarity=0,
+                task_specificity=0,
+                constraint_completeness=0,
+                output_format=0,
+                hallucination_resistance=0,
+                edge_case_handling=0,
+                improvement_over_raw=0,
             ),
             weaknesses=[],
             enhancement_suggestions=[],
             strengths=[],
-            reasoning="Critique unavailable — default scores assigned.",
-            passed_quality_gate=True,
+            reasoning=reason,
+            passed_quality_gate=False,
+            was_fallback=True,
         )
 
     @staticmethod

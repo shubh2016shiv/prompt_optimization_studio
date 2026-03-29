@@ -4,7 +4,7 @@ Pydantic request models for API endpoints.
 These define the shape of incoming request bodies with validation.
 """
 
-from typing import Optional
+from typing import Optional, Literal
 
 from pydantic import BaseModel, Field
 
@@ -67,6 +67,14 @@ class OptimizationRequest(BaseModel):
     framework: str = Field(
         default="auto",
         description="The optimization framework to apply",
+    )
+    quality_gate_mode: Literal["full", "critique_only", "off", "sample_one_variant"] = Field(
+        default="full",
+        description=(
+            "Quality gate mode: full (critique+enhance all variants), "
+            "critique_only (evaluate all, no enhancement), off (skip quality gate), "
+            "sample_one_variant (full gate on variant 1 only)."
+        ),
     )
     provider: str = Field(
         default="anthropic",

@@ -68,8 +68,9 @@ def resolve_api_key() -> str:
     """
     Resolve an API key for the configured test provider.
 
-    Gap analysis (app.services.scoring.tcrte_scorer) uses OpenAI gpt-4.1-nano for
-    deterministic TCRTE pre-scoring with the *same* request api_key. If you only
+    Gap analysis (app.services.scoring.tcrte_scorer) uses Settings.openai_subtask_model
+    (default gpt-4.1-nano) for deterministic TCRTE pre-scoring with the *same* request
+    api_key. If you only
     have an Anthropic key, pre-scoring fails gracefully and the main model scores TCRTE.
     """
     load_backend_env()

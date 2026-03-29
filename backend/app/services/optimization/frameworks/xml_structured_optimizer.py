@@ -216,6 +216,7 @@ Output Format MUST match: {format_str}
             raw_prompt=request.raw_prompt,
             task_type=request.task_type,
             api_key=request.api_key,
+            quality_gate_mode=request.quality_gate_mode,
         )
 
         return response

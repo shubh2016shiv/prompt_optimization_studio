@@ -54,6 +54,7 @@ class LLMClient:
         max_tokens: int,
         model: str,
         system: Optional[str] = None,
+        temperature: Optional[float] = None,
     ) -> str:
         """
         Dispatch a single-turn call to the correct provider.
@@ -69,11 +70,11 @@ class LLMClient:
             The model's response text.
         """
         if provider == "openai":
-            return await self._call_openai(prompt, max_tokens, model, system)
+            return await self._call_openai(prompt, max_tokens, model, system, temperature)
         elif provider == "google":
-            return await self._call_google(prompt, max_tokens, model, system)
+            return await self._call_google(prompt, max_tokens, model, system, temperature)
         else:
-            return await self._call_anthropic(prompt, max_tokens, model, system)
+            return await self._call_anthropic(prompt, max_tokens, model, system, temperature)
 
     async def call_chat(
         self,
@@ -113,6 +114,7 @@ class LLMClient:
         max_tokens: int,
         model: str,
         system: Optional[str] = None,
+        temperature: Optional[float] = None,
     ) -> str:
         payload: dict = {
             "model": model,
@@ -121,6 +123,8 @@ class LLMClient:
         }
         if system:
             payload["system"] = system
+        if temperature is not None:
+            payload["temperature"] = temperature
 
         return await self._post_anthropic(payload)
 
@@ -179,12 +183,20 @@ class LLMClient:
         max_tokens: int,
         model: str,
         system: Optional[str] = None,
+        temperature: Optional[float] = None,
     ) -> str:
         messages: list[dict] = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
-        return await self._call_openai_chat(messages, system="", max_tokens=max_tokens, model=model, _messages_prebuilt=messages)
+        return await self._call_openai_chat(
+            messages,
+            system="",
+            max_tokens=max_tokens,
+            model=model,
+            _messages_prebuilt=messages,
+            temperature=temperature,
+        )
 
     async def _call_openai_chat(
         self,
@@ -193,6 +205,7 @@ class LLMClient:
         max_tokens: int,
         model: str,
         _messages_prebuilt: Optional[list[dict]] = None,
+        temperature: Optional[float] = None,
     ) -> str:
         """
         Call the OpenAI Chat Completions API.
@@ -214,6 +227,8 @@ class LLMClient:
             "model": model,
             "messages": full_messages,
         }
+        if temperature is not None:
+            payload["temperature"] = temperature
         
         # Reasoning models (o1, o3, o4 series) use max_completion_tokens instead of max_tokens
         if model.startswith("o1") or model.startswith("o3") or model.startswith("o4"):
@@ -255,9 +270,10 @@ class LLMClient:
         max_tokens: int,
         model: str,
         system: Optional[str] = None,
+        temperature: Optional[float] = None,
     ) -> str:
         messages = [{"role": "user", "parts": [{"text": prompt}]}]
-        return await self._post_google(messages, system, max_tokens, model)
+        return await self._post_google(messages, system, max_tokens, model, temperature)
 
     async def _call_google_chat(
         self,
@@ -265,6 +281,7 @@ class LLMClient:
         system: str,
         max_tokens: int,
         model: str,
+        temperature: Optional[float] = None,
     ) -> str:
         """
         Convert the standard {role, content} history to Google's {role, parts} format.
@@ -273,7 +290,7 @@ class LLMClient:
             {"role": msg["role"], "parts": [{"text": msg["content"]}]}
             for msg in messages
         ]
-        return await self._post_google(google_messages, system, max_tokens, model)
+        return await self._post_google(google_messages, system, max_tokens, model, temperature)
 
     async def _post_google(
         self,
@@ -281,6 +298,7 @@ class LLMClient:
         system: Optional[str],
         max_tokens: int,
         model: str,
+        temperature: Optional[float],
     ) -> str:
         self._require_client()
 
@@ -288,6 +306,8 @@ class LLMClient:
             "contents": google_messages,
             "generationConfig": {"maxOutputTokens": max_tokens},
         }
+        if temperature is not None:
+            payload["generationConfig"]["temperature"] = temperature
         if system:
             payload["systemInstruction"] = {"parts": [{"text": system}]}
 

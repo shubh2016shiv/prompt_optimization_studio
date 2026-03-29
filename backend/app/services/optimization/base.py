@@ -51,7 +51,7 @@ DESIGN DECISIONS:
 from abc import ABC, abstractmethod
 import asyncio
 import logging
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Literal
 
 from app.models.requests import OptimizationRequest
 from app.models.responses import (
@@ -123,6 +123,7 @@ class BaseOptimizerStrategy(ABC):
         raw_prompt: str,
         task_type: str,
         api_key: str,
+        quality_gate_mode: Literal["full", "critique_only", "off", "sample_one_variant"] = "full",
     ) -> OptimizationResponse:
         """
         Internal quality gate: critique each variant, enhance weak ones,
@@ -139,13 +140,18 @@ class BaseOptimizerStrategy(ABC):
           4. Attach PromptQualityEvaluation to the variant
 
         Graceful degradation: if critique fails for any variant, that variant
-        is returned unchanged with quality_evaluation = None.
+        is returned unchanged with quality_evaluation.was_fallback = True.
 
         Args:
             response: The first-pass OptimizationResponse from the framework.
             raw_prompt: The user's original unoptimised prompt.
             task_type: The task type (reasoning, extraction, etc.).
             api_key: API key for the LLM client (for judge calls).
+            quality_gate_mode: Controls critique/enhancement scope:
+                - full: critique + conditional enhancement for all 3 variants
+                - critique_only: critique all 3 variants, no enhancement
+                - off: skip critique/enhancement entirely
+                - sample_one_variant: run full mode on variant 1 only
 
         Returns:
             The same OptimizationResponse with refined variants and real scores.
@@ -159,6 +165,29 @@ class BaseOptimizerStrategy(ABC):
         from app.services.llm_client import LLMClient
 
         critic = PromptQualityCritic()
+        evaluated_variant_indices = [0, 1, 2]
+        allow_enhancement = quality_gate_mode == "full"
+
+        if quality_gate_mode == "off":
+            for variant in response.variants:
+                variant.quality_evaluation = None
+                variant.quality_scores_source = "not_evaluated"
+                variant.tcrte_scores_source = "initial_framework_estimate"
+            logger.info("Quality gate mode=off: skipped critique/enhancement for all variants.")
+            return response
+
+        if quality_gate_mode == "sample_one_variant":
+            evaluated_variant_indices = [0]
+            allow_enhancement = True
+            for idx in (1, 2):
+                response.variants[idx].quality_evaluation = None
+                response.variants[idx].quality_scores_source = "not_evaluated"
+                response.variants[idx].tcrte_scores_source = "initial_framework_estimate"
+            logger.info("Quality gate mode=sample_one_variant: evaluating variant 1 only.")
+
+        if quality_gate_mode == "critique_only":
+            allow_enhancement = False
+            logger.info("Quality gate mode=critique_only: enhancement pass disabled.")
 
         async def _critique_and_enhance_single_variant(variant_index: int) -> None:
             """Critique and optionally enhance one variant in-place."""
@@ -178,7 +207,11 @@ class BaseOptimizerStrategy(ABC):
                     final_system_prompt = variant.system_prompt
 
                     # Step 2: Enhance if below quality gate
-                    if not critique.passed_quality_gate:
+                    if (
+                        allow_enhancement
+                        and not critique.passed_quality_gate
+                        and not critique.was_fallback
+                    ):
                         enhanced_prompt = await critic.enhance_prompt_from_critique(
                             system_prompt=variant.system_prompt,
                             critique=critique,
@@ -199,17 +232,23 @@ class BaseOptimizerStrategy(ABC):
                     variant.system_prompt = final_system_prompt
                     variant.token_estimate = len(final_system_prompt) // 4
 
-                    # Replace hardcoded TCRTE scores with real measured scores
-                    variant.tcrte_scores = VariantTCRTEScores(
-                        task=critique.dimensions.task_specificity,
-                        context=critique.dimensions.constraint_completeness,
-                        role=critique.dimensions.role_clarity,
-                        tone=critique.dimensions.edge_case_handling,
-                        execution=critique.dimensions.output_format,
-                    )
+                    # Replace hardcoded TCRTE proxy scores only when critique is valid.
+                    if not critique.was_fallback:
+                        variant.tcrte_scores = VariantTCRTEScores(
+                            task=critique.dimensions.task_specificity,
+                            context=critique.dimensions.constraint_completeness,
+                            role=critique.dimensions.role_clarity,
+                            tone=critique.dimensions.edge_case_handling,
+                            execution=critique.dimensions.output_format,
+                        )
+                        variant.tcrte_scores_source = "quality_critic_proxy"
+                    else:
+                        variant.tcrte_scores_source = "initial_framework_estimate"
 
                     # Attach quality evaluation metadata
+                    fallback_gaps = [critique.reasoning] if critique.was_fallback and critique.reasoning else []
                     variant.quality_evaluation = PromptQualityEvaluation(
+                        status="degraded" if critique.was_fallback else "ok",
                         overall_score=critique.overall_score,
                         grade=score_to_grade(critique.overall_score),
                         dimensions=PromptQualityDimensionScores(
@@ -222,23 +261,48 @@ class BaseOptimizerStrategy(ABC):
                             improvement_over_raw=critique.dimensions.improvement_over_raw,
                         ),
                         strengths=critique.strengths,
-                        remaining_gaps=critique.weaknesses if was_enhanced else [],
+                        remaining_gaps=(
+                            fallback_gaps
+                            if critique.was_fallback
+                            else (critique.weaknesses if was_enhanced else [])
+                        ),
                         was_enhanced=was_enhanced,
+                        was_fallback=critique.was_fallback,
+                    )
+                    variant.quality_scores_source = (
+                        "fallback" if critique.was_fallback else "prompt_quality_critic"
                     )
 
             except Exception as variant_error:
                 logger.warning(
                     "Quality critique failed for variant %d (%s). "
-                    "Returning original variant unchanged.",
+                    "Returning original variant with explicit fallback metadata.",
                     variant_index + 1, variant_error,
                 )
-                # Variant is left unchanged — quality_evaluation stays None
+                variant.quality_evaluation = PromptQualityEvaluation(
+                    status="degraded",
+                    overall_score=0,
+                    grade=score_to_grade(0),
+                    dimensions=PromptQualityDimensionScores(
+                        role_clarity=0,
+                        task_specificity=0,
+                        constraint_completeness=0,
+                        output_format=0,
+                        hallucination_resistance=0,
+                        edge_case_handling=0,
+                        improvement_over_raw=0,
+                    ),
+                    strengths=[],
+                    remaining_gaps=[f"Critique unavailable: {variant_error}"],
+                    was_enhanced=False,
+                    was_fallback=True,
+                )
+                variant.quality_scores_source = "fallback"
+                variant.tcrte_scores_source = "initial_framework_estimate"
 
-        # Run all 3 variant critiques in parallel for minimal latency
+        # Run selected variant critiques in parallel for minimal latency.
         await asyncio.gather(
-            _critique_and_enhance_single_variant(0),
-            _critique_and_enhance_single_variant(1),
-            _critique_and_enhance_single_variant(2),
+            *(_critique_and_enhance_single_variant(idx) for idx in evaluated_variant_indices)
         )
 
         return response

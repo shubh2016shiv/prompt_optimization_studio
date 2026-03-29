@@ -76,3 +76,6 @@ class CritiqueResult:
 
     passed_quality_gate: bool = False
     """True if overall_score >= QUALITY_GATE_THRESHOLD."""
+
+    was_fallback: bool = False
+    """True when critique used graceful degradation (judge call/parsing failed)."""
