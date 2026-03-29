@@ -12,37 +12,6 @@ from app.models.responses import (
 )
 
 
-class DummyStrategy:
-    async def generate_variants(self, request, core_k=2, few_shot_examples=None, auto_reason=None):
-        return OptimizationResponse(
-            analysis=OptimizationAnalysis(
-                detected_issues=[],
-                model_notes="",
-                framework_applied=request.framework,
-                coverage_delta="",
-                auto_selected_framework=None,
-                auto_reason=auto_reason,
-                few_shot_source="not_applicable",
-            ),
-            techniques_applied=[],
-            variants=[
-                PromptVariant(
-                    id=1,
-                    name="V1",
-                    strategy="test",
-                    system_prompt="s",
-                    user_prompt="u",
-                    token_estimate=1,
-                    tcrte_scores=VariantTCRTEScores(task=10, context=10, role=10, tone=10, execution=10),
-                    strengths=[],
-                    best_for="test",
-                    overshoot_guards=[],
-                    undershoot_guards=[],
-                )
-            ],
-        )
-
-
 @pytest.fixture
 def client():
     with TestClient(app) as c:
@@ -65,114 +34,78 @@ def _base_payload(framework: str) -> dict:
     }
 
 
-def _payload_with_dataset(framework: str) -> dict:
-    payload = _base_payload(framework)
-    payload["evaluation_dataset"] = [
-        {"input": "Extract invoice number", "expected_output": "INV-2044"},
-    ]
-    return payload
+def _build_pipeline_response(include_task_evaluation: bool) -> OptimizationResponse:
+    task_evaluation = None
+    if include_task_evaluation:
+        task_evaluation = TaskEvaluationResult(
+            task_success_score=84,
+            pass_rate=1.0,
+            total_cases=1,
+            passed_cases=1,
+            judging_mode="deterministic",
+            pairwise_tie_break_applied=False,
+            failure_reasons=[],
+            case_results=[
+                TaskEvaluationCaseResult(
+                    case_index=1,
+                    score=84,
+                    status="pass",
+                    scoring_method="deterministic",
+                    failure_reason=None,
+                )
+            ],
+        )
+
+    return OptimizationResponse(
+        analysis=OptimizationAnalysis(
+            detected_issues=[],
+            model_notes="",
+            framework_applied="kernel",
+            coverage_delta="",
+            auto_selected_framework=None,
+            auto_reason=None,
+            few_shot_source="not_applicable",
+        ),
+        techniques_applied=[],
+        variants=[
+            PromptVariant(
+                id=1,
+                name="V1",
+                strategy="test",
+                system_prompt="s",
+                user_prompt="u",
+                token_estimate=1,
+                tcrte_scores=VariantTCRTEScores(task=10, context=10, role=10, tone=10, execution=10),
+                task_evaluation=task_evaluation,
+                strengths=[],
+                best_for="test",
+                overshoot_guards=[],
+                undershoot_guards=[],
+            )
+        ],
+    )
 
 
-def test_optimize_sets_few_shot_source_not_applicable(client, monkeypatch):
+def test_optimize_route_returns_pipeline_response(client, monkeypatch):
     from app.api.routes import optimization as opt_route
 
-    monkeypatch.setattr(opt_route.OptimizerFactory, "get_optimizer", lambda _f: DummyStrategy())
+    async def fake_execute(**kwargs):
+        return _build_pipeline_response(include_task_evaluation=False)
+
+    monkeypatch.setattr(opt_route, "execute_optimization_request", fake_execute)
     response = client.post("/api/optimize", json=_base_payload("kernel"))
     assert response.status_code == 200
     assert response.json()["analysis"]["few_shot_source"] == "not_applicable"
+    assert response.json()["variants"][0]["task_evaluation"] is None
 
 
-def test_optimize_sets_few_shot_source_knn(client, monkeypatch):
+def test_optimize_route_returns_task_evaluation_when_pipeline_supplies_it(client, monkeypatch):
     from app.api.routes import optimization as opt_route
 
-    async def fake_count(*args, **kwargs):
-        return 2
+    async def fake_execute(**kwargs):
+        return _build_pipeline_response(include_task_evaluation=True)
 
-    async def fake_retrieve(*args, **kwargs):
-        return [{"input": "a", "output": "b"}]
-
-    monkeypatch.setattr(opt_route.OptimizerFactory, "get_optimizer", lambda _f: DummyStrategy())
-    monkeypatch.setattr(opt_route, "count_reasoning_hops", fake_count)
-    monkeypatch.setattr(opt_route, "retrieve_k_nearest", fake_retrieve)
-    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
-    app.state.few_shot_corpus = [{"id": "x"}]
-
-    response = client.post("/api/optimize", json=_base_payload("cot_ensemble"))
-    assert response.status_code == 200
-    assert response.json()["analysis"]["few_shot_source"] == "knn"
-
-
-def test_optimize_sets_few_shot_source_synthetic_on_retrieval_failure(client, monkeypatch):
-    from app.api.routes import optimization as opt_route
-
-    async def fake_count(*args, **kwargs):
-        return 2
-
-    async def fail_retrieve(*args, **kwargs):
-        raise RuntimeError("knn unavailable")
-
-    monkeypatch.setattr(opt_route.OptimizerFactory, "get_optimizer", lambda _f: DummyStrategy())
-    monkeypatch.setattr(opt_route, "count_reasoning_hops", fake_count)
-    monkeypatch.setattr(opt_route, "retrieve_k_nearest", fail_retrieve)
-    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
-    app.state.few_shot_corpus = [{"id": "x"}]
-
-    response = client.post("/api/optimize", json=_base_payload("cot_ensemble"))
-    assert response.status_code == 200
-    assert response.json()["analysis"]["few_shot_source"] == "synthetic"
-
-
-def test_optimize_calls_task_evaluation_when_dataset_is_present(client, monkeypatch):
-    from app.api.routes import optimization as opt_route
-
-    async def fake_task_evaluation(*, optimization_request, optimization_response):
-        for variant in optimization_response.variants:
-            variant.task_evaluation = TaskEvaluationResult(
-                task_success_score=84,
-                pass_rate=1.0,
-                total_cases=1,
-                passed_cases=1,
-                judging_mode="deterministic",
-                pairwise_tie_break_applied=False,
-                failure_reasons=[],
-                case_results=[
-                    TaskEvaluationCaseResult(
-                        case_index=1,
-                        score=84,
-                        status="pass",
-                        scoring_method="deterministic",
-                        failure_reason=None,
-                    )
-                ],
-            )
-
-    monkeypatch.setattr(opt_route.OptimizerFactory, "get_optimizer", lambda _f: DummyStrategy())
-    monkeypatch.setattr(
-        opt_route.task_level_evaluation_service,
-        "evaluate_response_variants",
-        fake_task_evaluation,
-    )
-
-    response = client.post("/api/optimize", json=_payload_with_dataset("kernel"))
-    assert response.status_code == 200
-    serialized_variant = response.json()["variants"][0]
-    assert serialized_variant["task_evaluation"] is not None
-    assert serialized_variant["task_evaluation"]["task_success_score"] == 84
-
-
-def test_optimize_skips_task_evaluation_when_dataset_absent(client, monkeypatch):
-    from app.api.routes import optimization as opt_route
-
-    async def fail_if_called(*args, **kwargs):
-        raise AssertionError("Task evaluation should be skipped when evaluation_dataset is absent")
-
-    monkeypatch.setattr(opt_route.OptimizerFactory, "get_optimizer", lambda _f: DummyStrategy())
-    monkeypatch.setattr(
-        opt_route.task_level_evaluation_service,
-        "evaluate_response_variants",
-        fail_if_called,
-    )
-
+    monkeypatch.setattr(opt_route, "execute_optimization_request", fake_execute)
     response = client.post("/api/optimize", json=_base_payload("kernel"))
     assert response.status_code == 200
-    assert response.json()["variants"][0]["task_evaluation"] is None
+    assert response.json()["variants"][0]["task_evaluation"]["task_success_score"] == 84

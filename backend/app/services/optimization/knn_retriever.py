@@ -140,7 +140,7 @@ async def retrieve_k_nearest(
     query: str,
     task_type: str,
     google_api_key: str,
-    precomputed_corpus: dict[str, list[EmbeddedEntry]],
+    precomputed_corpus: dict[str, list[Any]],
     k: int = 3,
 ) -> list[CorpusEntry]:
     """
@@ -153,9 +153,7 @@ async def retrieve_k_nearest(
     Falls back to the first k entries of the corpus if embedding fails (rare).
     Returns at most k entries; may return fewer if the corpus is small.
     """
-    corpus_for_task: list[EmbeddedEntry] = precomputed_corpus.get(
-        task_type, precomputed_corpus.get("reasoning", [])
-    )
+    corpus_for_task: list[Any] = precomputed_corpus.get(task_type, precomputed_corpus.get("reasoning", []))
 
     if not corpus_for_task:
         logger.warning("No corpus entries for task_type=%s; returning empty list.", task_type)
@@ -165,10 +163,10 @@ async def retrieve_k_nearest(
         query_vec = await _embed_text(query, google_api_key)
     except Exception as exc:
         logger.warning("Query embedding failed (%s); falling back to first %d entries.", exc, k)
-        return [e.entry for e in corpus_for_task[:k]]
+        return [_extract_entry_payload(e) for e in corpus_for_task[:k]]
 
     # Stack corpus embeddings into a matrix for vectorised cosine similarity
-    corpus_matrix = np.stack([e.embedding for e in corpus_for_task])  # (N, D)
+    corpus_matrix = np.stack([_extract_embedding_vector(e) for e in corpus_for_task])  # (N, D)
 
     # Cosine similarity: dot product of unit vectors
     query_norm = query_vec / (np.linalg.norm(query_vec) + 1e-8)
@@ -179,10 +177,36 @@ async def retrieve_k_nearest(
 
     # Top-k descending
     top_k_indices = np.argsort(similarities)[-k:][::-1]
-    results = [corpus_for_task[i].entry for i in top_k_indices]
+    results = [_extract_entry_payload(corpus_for_task[i]) for i in top_k_indices]
 
     logger.debug(
         "kNN retrieval: task=%s, k=%d, top similarity=%.3f",
         task_type, k, float(similarities[top_k_indices[0]]) if len(top_k_indices) else 0,
     )
     return results
+
+
+def _extract_entry_payload(corpus_item: Any) -> CorpusEntry:
+    """
+    Normalize one cached corpus item into a CorpusEntry dictionary.
+
+    Association:
+      Supports both in-memory dataclass form (`EmbeddedEntry`) and JSON-safe
+      Redis-cached dictionary form written by cached_operations.
+    """
+    if isinstance(corpus_item, dict) and "entry" in corpus_item:
+        return corpus_item["entry"]
+    return corpus_item.entry
+
+
+def _extract_embedding_vector(corpus_item: Any) -> np.ndarray:
+    """
+    Normalize one cached corpus item's embedding into a numpy vector.
+
+    Association:
+      Allows the retriever to consume vectors from both local memory objects
+      and Redis-serialized corpus cache payloads.
+    """
+    if isinstance(corpus_item, dict) and "embedding" in corpus_item:
+        return np.array(corpus_item["embedding"], dtype=np.float32)
+    return corpus_item.embedding

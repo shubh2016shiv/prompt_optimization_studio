@@ -2,8 +2,7 @@
 APOST FastAPI Application Entry Point.
 
 Configures the FastAPI application with CORS, routes, and static file serving.
-Also manages application lifecycle: pre-computing the few-shot corpus embeddings
-at startup so they are ready for kNN retrieval without cold-start latency.
+Also manages application lifecycle with durable Redis-backed orchestration.
 """
 
 import os
@@ -13,14 +12,16 @@ from pathlib import Path
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
+from app.api.routes import chat, gap_analysis, optimization, optimization_jobs
 from app.config import get_settings
-from app.api.routes import gap_analysis, optimization, chat
 from app.observability.logging_setup import setup_logging
 from app.observability.request_context import attach_request_context_middleware
 from app.services.health_checks import run_health_probes
+from app.services.optimization.optimization_job_service import OptimizationJobService
+from app.services.store.redis_store import RedisStore
 
 logger = structlog.get_logger(__name__)
 
@@ -28,43 +29,54 @@ logger = structlog.get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Application lifespan handler.
+    Manage startup/shutdown dependencies for the API process.
 
-    Startup: pre-computes Gemini embeddings for the entire few-shot corpus so that
-    kNN retrieval during cot_ensemble optimization requires only one live embedding
-    call (for the query) rather than re-embedding the corpus on every request.
+    Startup:
+      - initialize Redis adapter and verify connectivity
+      - initialize durable OptimizationJobService that depends on Redis
+      - keep few-shot corpus lazy (computed on-demand and cache-backed)
 
-    The computation uses GOOGLE_API_KEY from the environment. If the key is absent,
-    the corpus is set to None and the kNN path falls back gracefully to LLM-generated
-    examples — no error is raised.
+    Shutdown:
+      - gracefully stop background worker backend
+      - close Redis resources to avoid socket leaks
     """
     settings = get_settings()
-    logger.info("Starting %s v%s", settings.app_name, settings.app_version)
+    logger.info(
+        "app.starting",
+        app_name=settings.app_name,
+        app_version=settings.app_version,
+    )
 
-    # Pre-compute corpus embeddings (non-blocking: failure does not crash startup)
-    google_key = os.getenv("GOOGLE_API_KEY")
-    if google_key:
-        try:
-            from app.services.optimization.knn_retriever import precompute_corpus_embeddings
-            logger.info("Pre-computing few-shot corpus embeddings via Gemini API...")
-            app.state.few_shot_corpus = await precompute_corpus_embeddings(google_key)
-            logger.info("Corpus embeddings ready.")
-        except Exception as exc:
-            logger.warning(
-                "Failed to pre-compute corpus embeddings (%s). "
-                "cot_ensemble will use LLM-generated examples as fallback.", exc
-            )
-            app.state.few_shot_corpus = None
-    else:
-        logger.info(
-            "GOOGLE_API_KEY not set — skipping corpus pre-computation. "
-            "cot_ensemble kNN retrieval will be unavailable."
-        )
-        app.state.few_shot_corpus = None
+    # Build Redis adapter first. Job creation should not proceed unless durable
+    # persistence is at least initialized.
+    redis_store = RedisStore()
+    try:
+        await redis_store.ping()
+        logger.info("redis.startup_ping_succeeded")
+    except Exception as redis_error:
+        logger.critical("redis.startup_ping_failed", error=str(redis_error))
+        if settings.redis_fail_fast:
+            # Fail fast in strict production mode where durable job storage is required.
+            raise SystemExit(1)
+
+    app.state.redis_store = redis_store
+    app.state.optimization_job_service = OptimizationJobService(job_store=redis_store)
+
+    # Corpus is now lazy and cache-backed, so no expensive warm-up at startup.
+    app.state.few_shot_corpus = None
 
     yield
 
-    logger.info("Shutting down %s", settings.app_name)
+    optimization_job_service = getattr(app.state, "optimization_job_service", None)
+    if optimization_job_service is not None:
+        await optimization_job_service.shutdown()
+
+    # Defensive fallback: if service was not initialized, still close Redis.
+    redis_store_instance = getattr(app.state, "redis_store", None)
+    if redis_store_instance is not None and optimization_job_service is None:
+        await redis_store_instance.close()
+
+    logger.info("app.stopping", app_name=settings.app_name)
 
 
 def create_application() -> FastAPI:
@@ -95,6 +107,7 @@ def create_application() -> FastAPI:
     # Register API routes
     app.include_router(gap_analysis.router, prefix="/api", tags=["Gap Analysis"])
     app.include_router(optimization.router, prefix="/api", tags=["Optimization"])
+    app.include_router(optimization_jobs.router, prefix="/api", tags=["Optimization Jobs"])
     app.include_router(chat.router, prefix="/api", tags=["Chat"])
 
     # Health check endpoint
@@ -111,7 +124,22 @@ def create_application() -> FastAPI:
             corpus_status = "ready"
         else:
             corpus_status = "unavailable"
+
         probe_results = await run_health_probes(settings=settings, corpus_ready=corpus_ready)
+
+        redis_store = getattr(app.state, "redis_store", None)
+        redis_status = {"status": "not_configured"}
+        if redis_store is not None:
+            try:
+                await redis_store.ping()
+                redis_status = {"status": "ok"}
+            except Exception as redis_error:
+                redis_status = {"status": "down", "error": str(redis_error)}
+                if probe_results["status"] == "healthy":
+                    probe_results["status"] = "degraded"
+
+        probe_results["dependencies"]["redis"] = redis_status
+
         return {
             "status": probe_results["status"],
             "version": settings.app_version,

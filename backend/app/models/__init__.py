@@ -16,6 +16,7 @@ from app.models.providers import (
 from app.models.requests import (
     GapAnalysisRequest,
     OptimizationRequest,
+    EvaluationDatasetCase,
     ChatRequest,
 )
 from app.models.responses import (
@@ -26,6 +27,8 @@ from app.models.responses import (
     VariantTCRTEScores,
     PromptVariant,
     OptimizationAnalysis,
+    OptimizationJobCreatedResponse,
+    OptimizationJobStatusResponse,
     OptimizationResponse,
     ChatMessage,
     ChatResponse,
@@ -48,6 +51,7 @@ __all__ = [
     # Request types
     "GapAnalysisRequest",
     "OptimizationRequest",
+    "EvaluationDatasetCase",
     "ChatRequest",
     # Response types
     "TCRTEScore",
@@ -57,6 +61,8 @@ __all__ = [
     "VariantTCRTEScores",
     "PromptVariant",
     "OptimizationAnalysis",
+    "OptimizationJobCreatedResponse",
+    "OptimizationJobStatusResponse",
     "OptimizationResponse",
     "ChatMessage",
     "ChatResponse",

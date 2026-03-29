@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.models.responses import (
     OptimizationAnalysis,
+    OptimizationJobCreatedResponse,
     OptimizationResponse,
     PromptVariant,
     VariantTCRTEScores,
@@ -35,34 +36,14 @@ class _DummyLLMClient:
         return "ok"
 
 
-class _DummyStrategy:
-    async def generate_variants(self, request, core_k=2, few_shot_examples=None, auto_reason=None):
-        return OptimizationResponse(
-            analysis=OptimizationAnalysis(
-                detected_issues=[],
-                model_notes="",
-                framework_applied=request.framework,
-                coverage_delta="",
-                auto_selected_framework=None,
-                auto_reason=auto_reason,
-                few_shot_source="not_applicable",
-            ),
-            techniques_applied=[],
-            variants=[
-                PromptVariant(
-                    id=1,
-                    name="V1",
-                    strategy="test",
-                    system_prompt="s",
-                    user_prompt="u",
-                    token_estimate=1,
-                    tcrte_scores=VariantTCRTEScores(task=10, context=10, role=10, tone=10, execution=10),
-                    strengths=[],
-                    best_for="test",
-                    overshoot_guards=[],
-                    undershoot_guards=[],
-                )
-            ],
+class _DummyJobService:
+    async def create_job(self, optimization_request, http_request, request_id, trace_id):
+        return OptimizationJobCreatedResponse(
+            job_id="job-123",
+            status="queued",
+            created_at="2026-03-29T00:00:00Z",
+            request_id=request_id,
+            trace_id=trace_id,
         )
 
 
@@ -92,14 +73,40 @@ def test_request_id_header_present_across_routes(client, monkeypatch):
     async def fake_score(*args, **kwargs):
         return None
 
-    async def fake_hops(*args, **kwargs):
-        return 2
+    async def fake_execute_optimization_request(**kwargs):
+        return OptimizationResponse(
+            analysis=OptimizationAnalysis(
+                detected_issues=[],
+                model_notes="",
+                framework_applied="kernel",
+                coverage_delta="",
+                auto_selected_framework=None,
+                auto_reason=None,
+                few_shot_source="not_applicable",
+            ),
+            techniques_applied=[],
+            variants=[
+                PromptVariant(
+                    id=1,
+                    name="V1",
+                    strategy="test",
+                    system_prompt="s",
+                    user_prompt="u",
+                    token_estimate=1,
+                    tcrte_scores=VariantTCRTEScores(task=10, context=10, role=10, tone=10, execution=10),
+                    strengths=[],
+                    best_for="test",
+                    overshoot_guards=[],
+                    undershoot_guards=[],
+                )
+            ],
+        )
 
     monkeypatch.setattr(gap_route, "score_tcrte", fake_score)
     monkeypatch.setattr(gap_route, "LLMClient", _DummyLLMClient)
     monkeypatch.setattr(chat_route, "LLMClient", _DummyLLMClient)
-    monkeypatch.setattr(opt_route, "count_reasoning_hops", fake_hops)
-    monkeypatch.setattr(opt_route.OptimizerFactory, "get_optimizer", lambda _framework: _DummyStrategy())
+    monkeypatch.setattr(opt_route, "execute_optimization_request", fake_execute_optimization_request)
+    monkeypatch.setattr(app.state, "optimization_job_service", _DummyJobService())
 
     header = {"X-Request-ID": "shared-request-id"}
 
@@ -130,6 +137,21 @@ def test_request_id_header_present_across_routes(client, monkeypatch):
     )
     assert optimize_response.status_code == 200
     assert optimize_response.headers.get("X-Request-ID") == "shared-request-id"
+
+    optimize_job_response = client.post(
+        "/api/optimize/jobs",
+        headers=header,
+        json={
+            "raw_prompt": "Summarize this text",
+            "framework": "kernel",
+            "provider": "openai",
+            "model_id": "gpt-4.1-mini",
+            "api_key": "secret-key",
+            "quality_gate_mode": "off",
+        },
+    )
+    assert optimize_job_response.status_code == 200
+    assert optimize_job_response.headers.get("X-Request-ID") == "shared-request-id"
 
     chat_response = client.post(
         "/api/chat",

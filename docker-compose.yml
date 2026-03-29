@@ -6,6 +6,19 @@
 version: '3.8'
 
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: apost-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
   apost:
     build:
       context: .
@@ -28,6 +41,11 @@ services:
       - MAX_TOKENS_GAP_ANALYSIS=1500
       - MAX_TOKENS_OPTIMIZATION=4096
       - MAX_TOKENS_CHAT=2048
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_FAIL_FAST=true
+    depends_on:
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]

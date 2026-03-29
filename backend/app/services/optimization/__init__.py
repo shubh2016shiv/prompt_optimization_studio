@@ -25,10 +25,20 @@ MODULE STRUCTURE:
 
 from .knn_retriever import retrieve_k_nearest, precompute_corpus_embeddings
 from .base import OptimizerFactory, BaseOptimizerStrategy
+from .job_execution_backends import (
+    OptimizationJobExecutionBackend,
+    ProcessPoolOptimizationJobExecutionBackend,
+)
+from .optimization_job_service import OptimizationJobService
+from .optimization_pipeline import execute_optimization_request
 
 __all__ = [
     "retrieve_k_nearest",
     "precompute_corpus_embeddings",
     "OptimizerFactory",
     "BaseOptimizerStrategy",
+    "OptimizationJobExecutionBackend",
+    "ProcessPoolOptimizationJobExecutionBackend",
+    "OptimizationJobService",
+    "execute_optimization_request",
 ]

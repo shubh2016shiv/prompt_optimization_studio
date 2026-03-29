@@ -130,13 +130,38 @@ def test_optimize_route_logs_request_id(monkeypatch):
     from app.api.routes import optimization as opt_route
     from app.main import app
 
-    async def fake_hops(*args, **kwargs):
-        return 2
+    async def fake_execute_optimization_request(**kwargs):
+        return OptimizationResponse(
+            analysis=OptimizationAnalysis(
+                detected_issues=[],
+                model_notes="",
+                framework_applied="kernel",
+                coverage_delta="",
+                auto_selected_framework=None,
+                auto_reason=None,
+                few_shot_source="not_applicable",
+            ),
+            techniques_applied=[],
+            variants=[
+                PromptVariant(
+                    id=1,
+                    name="V1",
+                    strategy="test",
+                    system_prompt="System prompt",
+                    user_prompt="User prompt",
+                    token_estimate=5,
+                    tcrte_scores=VariantTCRTEScores(task=10, context=10, role=10, tone=10, execution=10),
+                    strengths=[],
+                    best_for="test",
+                    overshoot_guards=[],
+                    undershoot_guards=[],
+                )
+            ],
+        )
 
     capture_logger = _CaptureLogger()
     monkeypatch.setattr(opt_route, "logger", capture_logger)
-    monkeypatch.setattr(opt_route, "count_reasoning_hops", fake_hops)
-    monkeypatch.setattr(opt_route.OptimizerFactory, "get_optimizer", lambda _f: _RouteDummyStrategy())
+    monkeypatch.setattr(opt_route, "execute_optimization_request", fake_execute_optimization_request)
 
     with TestClient(app) as client:
         response = client.post(

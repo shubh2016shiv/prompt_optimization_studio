@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     debug: bool = False
     log_level: str = "INFO"
     health_probe_timeout_seconds: float = 5.0
+    redis_url: str = "redis://redis:6379/0"
+    redis_max_connections: int = 100
+    redis_socket_timeout_seconds: float = 5.0
+    redis_key_prefix: str = "apost:v4:"
+    redis_fail_fast: bool = False
 
     cors_origins: str = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173"
 
@@ -39,6 +44,7 @@ class Settings(BaseSettings):
     max_tokens_chat: int = 2048
     max_tokens_task_evaluation_generation: int = 2048
     max_tokens_task_evaluation_judging: int = 900
+    optimization_job_worker_processes: int = 2
 
     # OpenAI fast model for TCRTE rubric scoring and optimizer internal sub-tasks
     openai_subtask_model: str = "gpt-4.1-nano"
