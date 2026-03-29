@@ -70,6 +70,7 @@ class LLMClient:
         model: str,
         system: Optional[str] = None,
         temperature: Optional[float] = None,
+        response_format: Optional[dict] = None,
     ) -> str:
         """
         Dispatch a single-turn call to the correct provider.
@@ -85,9 +86,23 @@ class LLMClient:
             The model's response text.
         """
         if provider == "openai":
-            response_text = await self._call_openai(prompt, max_tokens, model, system, temperature)
+            response_text = await self._call_openai(
+                prompt,
+                max_tokens,
+                model,
+                system,
+                temperature,
+                response_format,
+            )
         elif provider == "google":
-            response_text = await self._call_google(prompt, max_tokens, model, system, temperature)
+            response_text = await self._call_google(
+                prompt,
+                max_tokens,
+                model,
+                system,
+                temperature,
+                response_format,
+            )
         else:
             response_text = await self._call_anthropic(prompt, max_tokens, model, system, temperature)
 
@@ -214,6 +229,7 @@ class LLMClient:
         model: str,
         system: Optional[str] = None,
         temperature: Optional[float] = None,
+        response_format: Optional[dict] = None,
     ) -> str:
         messages: list[dict] = []
         if system:
@@ -226,6 +242,7 @@ class LLMClient:
             model=model,
             _messages_prebuilt=messages,
             temperature=temperature,
+            response_format=response_format,
         )
 
     async def _call_openai_chat(
@@ -236,6 +253,7 @@ class LLMClient:
         model: str,
         _messages_prebuilt: Optional[list[dict]] = None,
         temperature: Optional[float] = None,
+        response_format: Optional[dict] = None,
     ) -> str:
         """
         Call the OpenAI Chat Completions API.
@@ -259,6 +277,8 @@ class LLMClient:
         }
         if temperature is not None:
             payload["temperature"] = temperature
+        if response_format is not None:
+            payload["response_format"] = response_format
         
         # Reasoning models (o1, o3, o4 series) use max_completion_tokens instead of max_tokens
         if model.startswith("o1") or model.startswith("o3") or model.startswith("o4"):
@@ -306,9 +326,10 @@ class LLMClient:
         model: str,
         system: Optional[str] = None,
         temperature: Optional[float] = None,
+        response_format: Optional[dict] = None,
     ) -> str:
         messages = [{"role": "user", "parts": [{"text": prompt}]}]
-        return await self._post_google(messages, system, max_tokens, model, temperature)
+        return await self._post_google(messages, system, max_tokens, model, temperature, response_format)
 
     async def _call_google_chat(
         self,
@@ -325,7 +346,14 @@ class LLMClient:
             {"role": msg["role"], "parts": [{"text": msg["content"]}]}
             for msg in messages
         ]
-        return await self._post_google(google_messages, system, max_tokens, model, temperature)
+        return await self._post_google(
+            google_messages,
+            system,
+            max_tokens,
+            model,
+            temperature,
+            response_format=None,
+        )
 
     async def _post_google(
         self,
@@ -334,6 +362,7 @@ class LLMClient:
         max_tokens: int,
         model: str,
         temperature: Optional[float],
+        response_format: Optional[dict] = None,
     ) -> str:
         self._require_client()
 
@@ -343,6 +372,15 @@ class LLMClient:
         }
         if temperature is not None:
             payload["generationConfig"]["temperature"] = temperature
+        if response_format is not None:
+            response_type = str(response_format.get("type", "")).strip().lower()
+            if response_type in {"json_object", "json_schema"}:
+                payload["generationConfig"]["responseMimeType"] = "application/json"
+                if response_type == "json_schema":
+                    schema_block = response_format.get("json_schema", {})
+                    schema = schema_block.get("schema")
+                    if isinstance(schema, dict):
+                        payload["generationConfig"]["responseSchema"] = schema
         if system:
             payload["systemInstruction"] = {"parts": [{"text": system}]}
 

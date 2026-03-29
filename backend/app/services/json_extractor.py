@@ -22,7 +22,7 @@ class JSONExtractionError(Exception):
     pass
 
 
-def extract_json_from_llm_response(response_text: str) -> dict[str, Any]:
+def extract_json_from_llm_response(response_text: str) -> Any:
     """
     Extract JSON from an LLM response that may be wrapped in markdown fences.
 
@@ -30,7 +30,7 @@ def extract_json_from_llm_response(response_text: str) -> dict[str, Any]:
         response_text: The raw text response from the LLM.
 
     Returns:
-        The parsed JSON as a dictionary.
+        The parsed JSON payload (object/array/scalar).
 
     Raises:
         JSONExtractionError: If JSON cannot be extracted or parsed.
@@ -98,3 +98,31 @@ def extract_json_from_llm_response(response_text: str) -> dict[str, Any]:
             f"Failed to extract valid JSON from LLM response: {str(e)}\n"
             f"Response preview: {text[:500]}..."
         )
+
+
+def coerce_top_level_object(
+    parsed_payload: Any,
+    *,
+    context_label: str,
+) -> dict[str, Any]:
+    """
+    Coerce a parsed JSON payload into a top-level object.
+
+    Some model outputs may wrap the intended object inside a one-item array.
+    This helper normalizes that common shape while still failing clearly for
+    unsupported top-level structures.
+    """
+    if isinstance(parsed_payload, dict):
+        return parsed_payload
+
+    if isinstance(parsed_payload, list):
+        for item in parsed_payload:
+            if isinstance(item, dict):
+                return item
+        raise JSONExtractionError(
+            f"{context_label}: expected JSON object but received array without object entries."
+        )
+
+    raise JSONExtractionError(
+        f"{context_label}: expected JSON object but received {type(parsed_payload).__name__}."
+    )

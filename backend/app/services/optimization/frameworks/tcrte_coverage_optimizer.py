@@ -59,6 +59,7 @@ REFERENCES:
 """
 
 import logging
+import json
 from typing import Any, List, Optional
 
 from app.models.requests import OptimizationRequest
@@ -69,7 +70,11 @@ from app.models.responses import (
     VariantTCRTEScores,
 )
 from app.services.llm_client import LLMClient
-from app.services.json_extractor import extract_json_from_llm_response
+from app.services.json_extractor import (
+    JSONExtractionError,
+    coerce_top_level_object,
+    extract_json_from_llm_response,
+)
 from app.services.optimization.base import BaseOptimizerStrategy
 from app.services.optimization.optimizer_configuration import (
     MAX_TOKENS_TCRTE_DIMENSION_FILL,
@@ -139,6 +144,32 @@ Return ONLY valid JSON matching this schema:
   "critical_context_for_core": "The single most important context element"
 }}
 """
+
+_TCRTE_FILLED_SECTIONS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "task_section": {"type": "string"},
+        "context_section": {"type": "string"},
+        "role_section": {"type": "string"},
+        "tone_section": {"type": "string"},
+        "execution_section": {"type": "string"},
+        "constraints": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "critical_context_for_core": {"type": "string"},
+    },
+    "required": [
+        "task_section",
+        "context_section",
+        "role_section",
+        "tone_section",
+        "execution_section",
+        "constraints",
+        "critical_context_for_core",
+    ],
+    "additionalProperties": False,
+}
 
 
 class TcrteCoverageOptimizer(BaseOptimizerStrategy):
@@ -292,23 +323,19 @@ class TcrteCoverageOptimizer(BaseOptimizerStrategy):
             user_provided_answers_block=user_answers_block,
         )
 
-        async with LLMClient(api_key=request.api_key) as llm_client:
-            fill_response_text = await llm_client.call(
-                provider=request.provider,
-                prompt=fill_prompt,
-                max_tokens=MAX_TOKENS_TCRTE_DIMENSION_FILL,
-                model=request.model_id,
-                system=SYSTEM_PROMPT_FOR_JSON_EXTRACTION,
-            )
-
-        filled_sections = extract_json_from_llm_response(fill_response_text)
-        task_section = filled_sections.get("task_section", "Complete the requested task.")
-        context_section = filled_sections.get("context_section", "General domain.")
-        role_section = filled_sections.get("role_section", "You are an AI assistant.")
-        tone_section = filled_sections.get("tone_section", "Professional and clear.")
-        execution_section = filled_sections.get("execution_section", "Respond in clear prose.")
-        constraints = filled_sections.get("constraints", [])
-        critical_context = filled_sections.get("critical_context_for_core", "")
+        filled_sections = await self._extract_tcrte_sections(
+            provider=request.provider,
+            model_id=request.model_id,
+            api_key=request.api_key,
+            fill_prompt=fill_prompt,
+        )
+        task_section = filled_sections["task_section"]
+        context_section = filled_sections["context_section"]
+        role_section = filled_sections["role_section"]
+        tone_section = filled_sections["tone_section"]
+        execution_section = filled_sections["execution_section"]
+        constraints = filled_sections["constraints"]
+        critical_context = filled_sections["critical_context_for_core"]
 
         # Count how many dimensions were repaired
         missing_count = sum(1 for status in dimension_classifications.values() if status == "missing")
@@ -489,6 +516,139 @@ HARD CONSTRAINTS
         )
 
         return response
+
+    async def _extract_tcrte_sections(
+        self,
+        *,
+        provider: str,
+        model_id: str,
+        api_key: str,
+        fill_prompt: str,
+    ) -> dict[str, Any]:
+        """
+        Extract and normalize the generated TCRTE sections from model output.
+
+        Uses provider-aware structured response settings where available and a
+        one-shot repair retry for malformed payloads.
+        """
+        response_format = self._structured_response_format_for_provider(provider)
+
+        async with LLMClient(api_key=api_key) as llm_client:
+            fill_response_text = await llm_client.call(
+                provider=provider,
+                prompt=fill_prompt,
+                max_tokens=MAX_TOKENS_TCRTE_DIMENSION_FILL,
+                model=model_id,
+                system=SYSTEM_PROMPT_FOR_JSON_EXTRACTION,
+                response_format=response_format,
+            )
+
+            try:
+                parsed_payload = extract_json_from_llm_response(fill_response_text)
+                filled_sections = coerce_top_level_object(
+                    parsed_payload,
+                    context_label="tcrte section fill extraction",
+                )
+            except JSONExtractionError:
+                repair_prompt = (
+                    "Repair the payload into VALID JSON matching this schema exactly.\n"
+                    "Return ONLY JSON.\n\n"
+                    f"Schema:\n{json.dumps(_TCRTE_FILLED_SECTIONS_SCHEMA, ensure_ascii=True)}\n\n"
+                    f"Malformed payload:\n{fill_response_text}"
+                )
+                repaired_response = await llm_client.call(
+                    provider=provider,
+                    prompt=repair_prompt,
+                    max_tokens=MAX_TOKENS_TCRTE_DIMENSION_FILL,
+                    model=model_id,
+                    system=SYSTEM_PROMPT_FOR_JSON_EXTRACTION,
+                    response_format=response_format,
+                )
+                repaired_payload = extract_json_from_llm_response(repaired_response)
+                filled_sections = coerce_top_level_object(
+                    repaired_payload,
+                    context_label="tcrte repaired extraction",
+                )
+
+        task_section = self._normalize_section_text(
+            filled_sections.get("task_section"),
+            default_text="Complete the requested task.",
+        )
+        context_section = self._normalize_section_text(
+            filled_sections.get("context_section"),
+            default_text="General domain.",
+        )
+        role_section = self._normalize_section_text(
+            filled_sections.get("role_section"),
+            default_text="You are an AI assistant.",
+        )
+        tone_section = self._normalize_section_text(
+            filled_sections.get("tone_section"),
+            default_text="Professional and clear.",
+        )
+        execution_section = self._normalize_section_text(
+            filled_sections.get("execution_section"),
+            default_text="Respond in clear prose.",
+        )
+        constraints = self._normalize_constraints(filled_sections.get("constraints"))
+        critical_context = self._normalize_section_text(
+            filled_sections.get("critical_context_for_core"),
+            default_text="",
+        )
+
+        return {
+            "task_section": task_section,
+            "context_section": context_section,
+            "role_section": role_section,
+            "tone_section": tone_section,
+            "execution_section": execution_section,
+            "constraints": constraints,
+            "critical_context_for_core": critical_context,
+        }
+
+    def _normalize_section_text(self, value: Any, *, default_text: str) -> str:
+        """Normalize section fields into plain text."""
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, (dict, list)):
+            dumped = json.dumps(value, indent=2, ensure_ascii=True)
+            return dumped if dumped.strip() else default_text
+        return default_text
+
+    def _normalize_constraints(self, value: Any) -> list[str]:
+        """Normalize constraints into a non-empty list of string rules."""
+        normalized: list[str] = []
+        if isinstance(value, list):
+            normalized = [str(item).strip() for item in value if str(item).strip()]
+        elif isinstance(value, str):
+            for line in value.splitlines():
+                cleaned = line.strip().lstrip("-").strip()
+                if cleaned:
+                    normalized.append(cleaned)
+        elif isinstance(value, dict):
+            for dict_value in value.values():
+                text = str(dict_value).strip()
+                if text:
+                    normalized.append(text)
+        return normalized
+
+    def _structured_response_format_for_provider(self, provider: str) -> Optional[dict[str, Any]]:
+        """Return provider-compatible structured response hints when available."""
+        if provider == "openai":
+            return {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "tcrte_filled_sections",
+                    "strict": True,
+                    "schema": _TCRTE_FILLED_SECTIONS_SCHEMA,
+                },
+            }
+        if provider == "google":
+            return {
+                "type": "json_schema",
+                "json_schema": {"schema": _TCRTE_FILLED_SECTIONS_SCHEMA},
+            }
+        return None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
