@@ -29,3 +29,4 @@ export {
   TooltipContent, 
   TooltipProvider 
 } from './Tooltip';
+export { ProgressRing } from './ProgressRing';

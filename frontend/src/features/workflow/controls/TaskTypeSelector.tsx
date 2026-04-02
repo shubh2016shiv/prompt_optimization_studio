@@ -1,7 +1,8 @@
 /**
  * TaskTypeSelector Component
- * 
+ *
  * Chips for selecting the task type (planning, reasoning, coding, etc.).
+ * In `compact` mode (used inside ConfigurationPanel accordion), the PanelHeader is omitted.
  */
 
 import { m } from 'framer-motion';
@@ -11,16 +12,18 @@ import { TASK_TYPES } from '@/constants';
 import { PanelHeader } from '@/components/layout';
 import type { TaskTypeId } from '@/types';
 
-/**
- * Task type selection chips.
- */
-export function TaskTypeSelector() {
+interface TaskTypeSelectorProps {
+  /** When true, omits the PanelHeader (used inside accordion) */
+  compact?: boolean;
+}
+
+export function TaskTypeSelector({ compact = false }: TaskTypeSelectorProps) {
   const selectedTaskType = useWorkflowStore((state) => state.taskType);
   const setTaskType = useWorkflowStore((state) => state.setTaskType);
 
   return (
     <div>
-      <PanelHeader icon="⚙" title="Task Type" />
+      {!compact && <PanelHeader icon="⚙" title="Task Type" />}
       <div className="flex flex-wrap gap-1.5">
         {TASK_TYPES.map((taskType) => {
           const isSelected = selectedTaskType === taskType.id;

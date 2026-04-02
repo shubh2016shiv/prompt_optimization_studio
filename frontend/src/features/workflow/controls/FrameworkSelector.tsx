@@ -1,7 +1,8 @@
 /**
  * FrameworkSelector Component
- * 
+ *
  * Chips for selecting the optimization framework.
+ * In `compact` mode (used inside ConfigurationPanel accordion), the PanelHeader is omitted.
  */
 
 import { m } from 'framer-motion';
@@ -11,10 +12,12 @@ import { FRAMEWORKS } from '@/constants';
 import { PanelHeader } from '@/components/layout';
 import type { FrameworkId } from '@/types';
 
-/**
- * Framework selection chips with description.
- */
-export function FrameworkSelector() {
+interface FrameworkSelectorProps {
+  /** When true, omits the PanelHeader (used inside accordion) */
+  compact?: boolean;
+}
+
+export function FrameworkSelector({ compact = false }: FrameworkSelectorProps) {
   const selectedFramework = useWorkflowStore((state) => state.framework);
   const setFramework = useWorkflowStore((state) => state.setFramework);
 
@@ -22,7 +25,7 @@ export function FrameworkSelector() {
 
   return (
     <div>
-      <PanelHeader icon="◈" title="Optimisation Framework" />
+      {!compact && <PanelHeader icon="◈" title="Optimisation Framework" />}
       <div className="flex flex-wrap gap-1.5 mb-2">
         {FRAMEWORKS.map((framework) => {
           const isSelected = selectedFramework === framework.id;
@@ -51,7 +54,6 @@ export function FrameworkSelector() {
         })}
       </div>
 
-      {/* Selected framework description */}
       {selectedFramework !== 'auto' && selectedFrameworkInfo && (
         <p className="text-[var(--text-secondary)] pl-0.5" style={{ fontSize: 'var(--text-sm)' }}>
           ↳ {selectedFrameworkInfo.description}

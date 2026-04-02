@@ -4,7 +4,6 @@
  * Dropdown for selecting the target LLM model.
  */
 
-import { Badge } from '@/components/ui';
 import { 
   Select, 
   SelectContent, 
@@ -18,8 +17,8 @@ import { useConfigurationStore, useCurrentProvider, useIsReasoningModel } from '
  * Model selection dropdown with reasoning model indicator.
  */
 export function ModelSelector() {
-  const modelId = useConfigurationStore((state) => state.modelId);
-  const setModelId = useConfigurationStore((state) => state.setModelId);
+  const modelId = useConfigurationStore((state: any) => state.modelId);
+  const setModelId = useConfigurationStore((state: any) => state.setModelId);
   const provider = useCurrentProvider();
   const isReasoning = useIsReasoningModel();
 
@@ -30,7 +29,7 @@ export function ModelSelector() {
           <SelectValue placeholder="Select a model" />
         </SelectTrigger>
         <SelectContent>
-          {provider?.models.map((model) => (
+          {provider?.models.map((model: any) => (
             <SelectItem key={model.id} value={model.id}>
               {model.label}
             </SelectItem>

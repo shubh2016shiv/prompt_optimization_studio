@@ -73,7 +73,7 @@ function TCRTEMiniScores({ scores }: { scores: PromptVariant['tcrte_scores'] }) 
  */
 export function VariantCard({ variant, index, onRefine }: VariantCardProps) {
   const [activeTab, setActiveTab] = useState('system');
-  const colors = VARIANT_COLORS[index] || VARIANT_COLORS[0];
+  const colors = VARIANT_COLORS[index] || VARIANT_COLORS[0]!;
 
   const tabs = [
     { id: 'system', label: 'System' },

@@ -1,46 +1,34 @@
 /**
  * WorkflowPanel Component
- * 
- * The middle panel containing workflow controls and phase-specific content.
- * Uses AnimatePresence for smooth phase transitions.
+ *
+ * The middle panel — pure phase content with a sticky glass footer.
+ * Task type and framework selectors are now in the ConfigurationPanel accordion.
+ * Action buttons are now in the WorkflowFooter at the bottom.
  */
 
 import { AnimatePresence } from 'framer-motion';
 import { useWorkflowStore } from '@/store';
-import { TaskTypeSelector, FrameworkSelector, WorkflowActions } from './controls';
 import { IdleState, AnalyzingState, InterviewPhase, OptimizingState, ResultsPhase } from './phases';
+import { WorkflowFooter } from './WorkflowFooter';
 
-/**
- * Main workflow panel with controls and phase content.
- */
 export function WorkflowPanel() {
   const phase = useWorkflowStore((state) => state.phase);
 
   return (
-    <>
-      {/* Fixed controls strip */}
-      <div 
-        className="shrink-0 p-4 space-y-4"
-        style={{
-          backgroundColor: 'var(--surface)',
-          borderBottom: '1px solid var(--border)',
-        }}
-      >
-        <TaskTypeSelector />
-        <FrameworkSelector />
-        <WorkflowActions />
-      </div>
-
-      {/* Phase-specific content with animated transitions */}
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Phase-specific content — fills all available space */}
       <div className="flex-1 overflow-hidden">
         <AnimatePresence mode="wait">
-          {phase === 'idle' && <IdleState key="idle" />}
-          {phase === 'analyzing' && <AnalyzingState key="analyzing" />}
-          {phase === 'interview' && <InterviewPhase key="interview" />}
+          {phase === 'idle'       && <IdleState       key="idle"       />}
+          {phase === 'analyzing'  && <AnalyzingState  key="analyzing"  />}
+          {phase === 'interview'  && <InterviewPhase  key="interview"  />}
           {phase === 'optimizing' && <OptimizingState key="optimizing" />}
-          {phase === 'results' && <ResultsPhase key="results" />}
+          {phase === 'results'    && <ResultsPhase    key="results"    />}
         </AnimatePresence>
       </div>
-    </>
+
+      {/* Sticky glass footer with contextual actions */}
+      <WorkflowFooter />
+    </div>
   );
 }

@@ -1,73 +1,89 @@
 /**
  * ThreeColumnLayout Component
- * 
- * The main layout structure with left config panel, middle workflow, and right chat.
- * Includes the ambient gradient header and staggered panel animations.
+ *
+ * Main layout: left config panel, middle workflow, right chat.
+ * Features a premium header with animated step indicator.
  */
 
 import { type ReactNode } from 'react';
 import { m } from 'framer-motion';
 import { LAYOUT, STAGGER_CONTAINER_VARIANTS, STAGGER_ITEM_VARIANTS } from '@/constants';
 import { useBackendHealth } from '@/hooks';
+import { useWorkflowStore } from '@/store';
+import { StepIndicator } from './StepIndicator';
 
 interface ThreeColumnLayoutProps {
-  /** Left panel content (configuration) */
   leftPanel: ReactNode;
-  /** Middle panel content (workflow) */
   middlePanel: ReactNode;
-  /** Right panel content (chat) */
   rightPanel: ReactNode;
-  /** Whether the right panel is collapsed */
   isRightPanelCollapsed?: boolean;
 }
 
-/**
- * Main three-column layout with header.
- * 
- * Uses CSS Grid for responsive layout:
- * - Desktop: Three columns side by side
- * - Tablet: Stacked layout with collapsible panels
- */
 export function ThreeColumnLayout({
   leftPanel,
   middlePanel,
   rightPanel,
   isRightPanelCollapsed = false,
 }: ThreeColumnLayoutProps) {
-  const rightPanelWidth = isRightPanelCollapsed 
-    ? LAYOUT.rightPanelCollapsedWidth 
+  const rightPanelWidth = isRightPanelCollapsed
+    ? LAYOUT.rightPanelCollapsedWidth
     : LAYOUT.rightPanelWidth;
   const backendHealth = useBackendHealth();
+  const phase = useWorkflowStore((state) => state.phase);
 
   return (
     <div className="min-h-screen flex flex-col bg-[var(--background)]">
-      {/* Header with ambient gradient */}
-      <header className="h-12 shrink-0 border-b border-[var(--border)] bg-[var(--surface)] relative overflow-hidden">
+      {/* ── Premium Header ────────────────────────────────────────── */}
+      <header
+        className="shrink-0 border-b border-[var(--border)] relative overflow-hidden"
+        style={{ height: 52, backgroundColor: 'var(--surface)' }}
+      >
         {/* Ambient gradient mesh */}
         <div className="absolute inset-0 ambient-gradient opacity-40" />
-        
-        {/* Header content */}
-        <div className="relative h-full px-4 flex items-center gap-3">
-          {/* Logo */}
-          <div 
-            className="w-7 h-7 rounded-md flex items-center justify-center text-sm shrink-0"
-            style={{
-              background: 'linear-gradient(135deg, var(--primary-action), var(--accent))',
-            }}
-          >
-            ⬡
-          </div>
-          
-          {/* Title */}
-          <h1 className="text-[var(--text-lg)] font-bold tracking-tight text-[var(--text-primary)]">
-            APOST
-            <span className="text-[var(--text-sm)] font-normal text-[var(--text-secondary)] ml-2 tracking-normal">
-              Prompt Optimisation Studio
-            </span>
-          </h1>
 
-          {/* Header status and badges */}
-          <div className="ml-auto flex items-center gap-2">
+        {/* Content */}
+        <div className="relative h-full px-4 flex items-center gap-4">
+          {/* Logo mark + title */}
+          <div className="flex items-center gap-2.5 shrink-0">
+            <div
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold shrink-0"
+              style={{
+                background: 'linear-gradient(135deg, var(--primary-action), var(--accent))',
+                boxShadow: '0 0 14px rgba(45,212,191,0.28)',
+              }}
+            >
+              ⬡
+            </div>
+            <div>
+              <div className="flex items-baseline gap-1.5">
+                <span
+                  className="font-extrabold tracking-tight"
+                  style={{ fontSize: '15px', color: 'var(--text-primary)', letterSpacing: '-0.3px' }}
+                >
+                  APOST
+                </span>
+                <span
+                  style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 400 }}
+                >
+                  Prompt Optimisation Studio
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Separator */}
+          <div
+            className="shrink-0 self-stretch"
+            style={{ width: 1, backgroundColor: 'var(--border)', margin: '10px 0' }}
+          />
+
+          {/* Step indicator — centered */}
+          <div className="flex-1 flex justify-center">
+            <StepIndicator phase={phase} />
+          </div>
+
+          {/* Right: backend status */}
+          <div className="flex items-center gap-2 shrink-0">
             <div
               className="px-2.5 py-1 rounded-full border flex items-center gap-1.5"
               style={{
@@ -81,51 +97,40 @@ export function ThreeColumnLayout({
                 className="w-1.5 h-1.5 rounded-full"
                 style={{ backgroundColor: backendHealth.color }}
               />
-              <span
-                className="font-semibold"
-                style={{ fontSize: 'var(--text-xs)' }}
-              >
+              <span style={{ fontSize: '10px', fontWeight: 600 }}>
                 {backendHealth.label}
               </span>
             </div>
 
-            <div className="flex gap-1.5">
-            {[
-              ['v4.0', 'var(--success)', 'var(--success-soft)'],
-              ['TCRTE', 'var(--cyan)', 'var(--cyan-soft)'],
-              ['CoRe+RAL', 'var(--orange)', 'var(--orange-soft)'],
-              ['+AI Chat', 'var(--pink)', 'var(--pink-soft)'],
-            ].map(([label, color, bg]) => (
-              <span
-                key={label}
-                className="px-2 py-0.5 rounded font-bold uppercase tracking-wide font-mono"
-                style={{
-                  fontSize: 'var(--text-xs)',
-                  color: color,
-                  backgroundColor: bg,
-                  border: `1px solid ${color}28`,
-                }}
-              >
-                {label}
-              </span>
-            ))}
-            </div>
+            {/* Version badge */}
+            <span
+              className="px-2 py-0.5 rounded font-bold font-mono"
+              style={{
+                fontSize: '10px',
+                color: 'var(--success)',
+                backgroundColor: 'var(--success-soft)',
+                border: '1px solid rgba(61,214,140,0.22)',
+                letterSpacing: '0.5px',
+              }}
+            >
+              v4.0
+            </span>
           </div>
         </div>
       </header>
 
-      {/* Main content area */}
+      {/* ── Main Content ──────────────────────────────────────────── */}
       <m.main
         className="flex-1 flex overflow-hidden"
-        style={{ height: `calc(100vh - ${LAYOUT.headerHeight}px)` }}
+        style={{ height: `calc(100vh - 52px)` }}
         variants={STAGGER_CONTAINER_VARIANTS}
         initial="hidden"
         animate="visible"
       >
-        {/* Left Panel - Configuration */}
+        {/* Left Panel */}
         <m.aside
           className="shrink-0 border-r border-[var(--border)] overflow-y-auto flex flex-col"
-          style={{ 
+          style={{
             width: LAYOUT.leftPanelWidth,
             backgroundColor: 'var(--surface)',
           }}
@@ -134,10 +139,10 @@ export function ThreeColumnLayout({
           {leftPanel}
         </m.aside>
 
-        {/* Middle Panel - Workflow (slightly lighter than sides for visual separation) */}
+        {/* Middle Panel */}
         <m.section
           className="flex-1 flex flex-col overflow-hidden"
-          style={{ 
+          style={{
             minWidth: LAYOUT.minMiddlePanelWidth,
             backgroundColor: 'var(--background)',
           }}
@@ -146,10 +151,10 @@ export function ThreeColumnLayout({
           {middlePanel}
         </m.section>
 
-        {/* Right Panel - Chat */}
+        {/* Right Panel */}
         <m.aside
           className="shrink-0 border-l border-[var(--border)] flex flex-col overflow-hidden"
-          style={{ 
+          style={{
             width: rightPanelWidth,
             backgroundColor: 'var(--surface)',
             transition: 'width 0.22s ease',
