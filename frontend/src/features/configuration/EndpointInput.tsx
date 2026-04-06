@@ -17,7 +17,7 @@ export function EndpointInput() {
   const provider = useCurrentProvider();
 
   return (
-    <div>
+    <div className="min-w-0">
       <FieldLabel hint="override">API Endpoint</FieldLabel>
       <Input
         value={endpointOverride}

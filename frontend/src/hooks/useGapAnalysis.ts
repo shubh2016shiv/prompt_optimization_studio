@@ -10,6 +10,7 @@ import { analyzePromptGaps, ApiError } from '@/services';
 import { 
   useConfigurationStore,
   useCurrentModel,
+  useSerializedInputVariables,
   useWorkflowStore,
 } from '@/store';
 
@@ -29,7 +30,7 @@ import {
  */
 export function useGapAnalysis() {
   const rawPrompt = useConfigurationStore((state) => state.rawPrompt);
-  const inputVariables = useConfigurationStore((state) => state.inputVariables);
+  const serializedInputVariables = useSerializedInputVariables();
   const providerId = useConfigurationStore((state) => state.providerId);
   const apiKey = useConfigurationStore((state) => state.apiKey);
   const model = useCurrentModel();
@@ -63,7 +64,7 @@ export function useGapAnalysis() {
     try {
       const response = await analyzePromptGaps({
         raw_prompt: rawPrompt,
-        input_variables: inputVariables || undefined,
+        input_variables: serializedInputVariables,
         task_type: taskType,
         provider: providerId,
         model_id: model.id,
@@ -84,7 +85,7 @@ export function useGapAnalysis() {
     }
   }, [
     rawPrompt,
-    inputVariables,
+    serializedInputVariables,
     taskType,
     providerId,
     model,

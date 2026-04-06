@@ -8,19 +8,19 @@
 
 export const COLORS = {
   // Background layers
-  background: '#0a0c14',
-  surface: '#0f1219',
-  surfaceRaised: '#151a24',
-  surfaceOverlay: '#1a2030',
+  background: '#0a0a0a',
+  surface: '#111111',
+  surfaceRaised: '#1a1a1a',
+  surfaceOverlay: '#1f2020',
 
   // Borders
-  border: '#1e2538',
-  borderElevated: '#2a3350',
+  border: '#242424',
+  borderElevated: '#323232',
 
   // Text
-  textPrimary: '#e2e6f0',
-  textSecondary: '#8892b0',
-  textTertiary: '#4a5270',
+  textPrimary: '#e7e7e7',
+  textSecondary: '#a8a8a8',
+  textTertiary: '#7a7a7a',
 
   // Accent
   accent: '#6c8aff',
@@ -146,7 +146,7 @@ export const SCORE_SPRING_CONFIG = {
 export const LAYOUT = {
   leftPanelWidth: 300,
   rightPanelWidth: 340,
-  rightPanelCollapsedWidth: 48,
+  rightPanelCollapsedWidth: 32,
   minMiddlePanelWidth: 480,
   headerHeight: 48,
   mobileBreakpoint: 1024,

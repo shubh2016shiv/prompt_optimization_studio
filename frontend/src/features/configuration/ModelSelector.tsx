@@ -1,21 +1,18 @@
 /**
  * ModelSelector Component
- * 
+ *
  * Dropdown for selecting the target LLM model.
  */
 
-import { 
-  Select, 
-  SelectContent, 
-  SelectItem, 
-  SelectTrigger, 
-  SelectValue 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from '@/components/ui';
 import { useConfigurationStore, useCurrentProvider, useIsReasoningModel } from '@/store';
 
-/**
- * Model selection dropdown with reasoning model indicator.
- */
 export function ModelSelector() {
   const modelId = useConfigurationStore((state: any) => state.modelId);
   const setModelId = useConfigurationStore((state: any) => state.setModelId);
@@ -23,7 +20,7 @@ export function ModelSelector() {
   const isReasoning = useIsReasoningModel();
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 min-w-0">
       <Select value={modelId} onValueChange={setModelId}>
         <SelectTrigger>
           <SelectValue placeholder="Select a model" />
@@ -37,18 +34,17 @@ export function ModelSelector() {
         </SelectContent>
       </Select>
 
-      {/* Reasoning model indicator */}
       {isReasoning && (
-        <div 
-          className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg"
+        <div
+          className="flex items-start gap-2 px-2.5 py-1.5 rounded-lg min-w-0"
           style={{
             backgroundColor: 'var(--warning-soft)',
             border: '1px solid var(--warning)30',
           }}
         >
-          <span>⚡</span>
-          <span className="text-[11.5px] font-semibold" style={{ color: 'var(--warning)' }}>
-            Reasoning model — CoT auto-suppressed
+          <span>!</span>
+          <span className="text-[11.5px] font-semibold break-words" style={{ color: 'var(--warning)' }}>
+            Reasoning model - CoT auto-suppressed
           </span>
         </div>
       )}

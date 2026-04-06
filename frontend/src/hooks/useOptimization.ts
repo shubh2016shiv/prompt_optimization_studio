@@ -10,6 +10,7 @@ import { optimizePrompt, ApiError } from '@/services';
 import { 
   useConfigurationStore,
   useCurrentModel,
+  useSerializedInputVariables,
   useWorkflowStore,
   useChatStore,
 } from '@/store';
@@ -76,7 +77,7 @@ I have full context of all 3 variants + your gap answers. What would you like to
  */
 export function useOptimization() {
   const rawPrompt = useConfigurationStore((state) => state.rawPrompt);
-  const inputVariables = useConfigurationStore((state) => state.inputVariables);
+  const serializedInputVariables = useSerializedInputVariables();
   const providerId = useConfigurationStore((state) => state.providerId);
   const apiKey = useConfigurationStore((state) => state.apiKey);
   const model = useCurrentModel();
@@ -118,7 +119,7 @@ export function useOptimization() {
     try {
       const response = await optimizePrompt({
         raw_prompt: rawPrompt,
-        input_variables: inputVariables || undefined,
+        input_variables: serializedInputVariables,
         task_type: taskType,
         framework,
         provider: providerId,
@@ -146,7 +147,7 @@ export function useOptimization() {
     }
   }, [
     rawPrompt,
-    inputVariables,
+    serializedInputVariables,
     taskType,
     framework,
     providerId,

@@ -1,91 +1,63 @@
 /**
  * HowItWorksGuide Component
- * 
- * A compact visual guide explaining the four-step workflow.
- * Descriptions are hidden behind tooltips to reduce visual noise.
+ *
+ * Persistent onboarding card for the 4-step flow.
  */
-
-import { PanelHeader } from '@/components/layout';
-import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui';
 
 const STEPS = [
   {
     number: '1',
-    icon: '🔍',
     title: 'Analyse Gaps',
-    description: 'Runs a TCRTE coverage audit across 5 dimensions and scores your prompt. Identifies what\'s structurally missing before generating anything.',
+    description: 'Audit prompt coverage across Task, Context, Role, Tone, and Execution.',
   },
   {
     number: '2',
-    icon: '💬',
-    title: 'Answer Questions',
-    description: 'Fills the identified gaps through a short targeted Q&A. No prompt engineering knowledge needed — just answer in plain language.',
+    title: 'Interview',
+    description: 'Answer targeted questions to close structural gaps before generation.',
   },
   {
     number: '3',
-    icon: '⬡',
     title: 'Optimise',
-    description: 'Generates 3 production-ready variants using CoRe, RAL-Writer, and output guards. Conservative, Structured, and Advanced — pick the right fit.',
+    description: 'Generate three production-ready prompt variants with safeguards.',
   },
   {
     number: '4',
-    icon: '✦',
     title: 'Refine in Chat',
-    description: 'The AI chat is seeded with all 3 variants, your gap answers, and TCRTE scores. Iterate conversationally without re-running the full workflow.',
+    description: 'Iterate conversationally with full workflow context loaded.',
   },
 ];
 
-/**
- * Compact guide section — title + tooltip on hover for each step.
- */
 export function HowItWorksGuide() {
   return (
-    <div>
-      <PanelHeader icon="⟳" title="How It Works" />
-      
-      <div className="flex flex-col gap-1.5">
-        {STEPS.map((step) => (
-          <Tooltip key={step.number} delayDuration={200}>
-            <TooltipTrigger asChild>
-              <div
-                className="flex items-center gap-2.5 px-2 py-1.5 rounded-md cursor-default transition-colors hover:bg-[var(--surface-raised)]"
-              >
-                {/* Step number */}
-                <div
-                  className="w-5 h-5 shrink-0 rounded-full flex items-center justify-center font-bold"
-                  style={{
-                    fontSize: 'var(--text-xs)',
-                    backgroundColor: 'var(--accent-soft)',
-                    border: '1px solid rgba(108, 138, 255, 0.2)',
-                    color: 'var(--accent)',
-                  }}
-                >
-                  {step.number}
-                </div>
-                
-                {/* Title only — description is in tooltip */}
-                <span
-                  className="font-semibold text-[var(--text-primary)]"
-                  style={{ fontSize: 'var(--text-sm)' }}
-                >
-                  {step.icon} {step.title}
-                </span>
-
-                {/* Info hint */}
-                <span
-                  className="ml-auto text-[var(--text-tertiary)]"
-                  style={{ fontSize: 'var(--text-xs)' }}
-                >
-                  ?
-                </span>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="right" className="max-w-[220px] leading-relaxed">
+    <div className="space-y-2.5">
+      {STEPS.map((step) => (
+        <div key={step.number} className="flex items-start gap-2.5">
+          <div
+            className="mt-0.5 h-5 w-5 rounded-full flex items-center justify-center"
+            style={{
+              fontSize: '10px',
+              fontWeight: 700,
+              color: 'var(--teal)',
+              backgroundColor: 'var(--teal-soft)',
+              border: '1px solid rgba(45, 212, 191, 0.35)',
+            }}
+          >
+            {step.number}
+          </div>
+          <div className="min-w-0">
+            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>
+              {step.title}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', lineHeight: 1.45 }}>
               {step.description}
-            </TooltipContent>
-          </Tooltip>
-        ))}
-      </div>
+            </div>
+          </div>
+        </div>
+      ))}
+
+      <p style={{ fontSize: '11px', color: 'var(--teal)' }}>
+        See project documentation for full framework details.
+      </p>
     </div>
   );
 }

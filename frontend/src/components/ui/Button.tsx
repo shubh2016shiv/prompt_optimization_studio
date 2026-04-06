@@ -16,7 +16,7 @@ const buttonVariants = cva(
    font-semibold transition-all duration-150 ease-out
    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2
    disabled:pointer-events-none disabled:opacity-50
-   active:scale-[0.98]`,
+   active:scale-[0.97] active:opacity-90`,
   {
     variants: {
       variant: {
@@ -28,7 +28,7 @@ const buttonVariants = cva(
         `,
         secondary: `
           bg-[var(--surface-raised)] text-[var(--text-primary)]
-          border border-[var(--border)]
+          border border-[var(--border-subtle)]
           hover:bg-[var(--surface-overlay)] hover:border-[var(--border-elevated)]
         `,
         ghost: `
@@ -94,3 +94,4 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
 Button.displayName = 'Button';
 
 export { Button, buttonVariants };
+

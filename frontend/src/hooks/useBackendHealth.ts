@@ -1,38 +1,60 @@
 /**
  * useBackendHealth Hook
  *
- * Polls the backend health endpoint so the header can reflect
- * whether the API is online during local development.
+ * Polls backend health and returns status metadata for compact indicators.
  */
 
 import { useEffect, useMemo, useState } from 'react';
 import { getRequest } from '@/services';
 
-type BackendHealthStatus = 'checking' | 'online' | 'offline';
+type BackendHealthStatus = 'checking' | 'online' | 'degraded' | 'offline';
 
 interface BackendHealthResponse {
   status: string;
   version: string;
 }
 
+interface HealthState {
+  status: BackendHealthStatus;
+  latencyMs?: number;
+  lastCheckedAt?: number;
+}
+
 export function useBackendHealth(pollIntervalMs = 15000) {
-  const [status, setStatus] = useState<BackendHealthStatus>('checking');
+  const [state, setState] = useState<HealthState>({ status: 'checking' });
 
   useEffect(() => {
     let isMounted = true;
 
     const checkHealth = async () => {
+      const startedAt = performance.now();
+
       try {
         const response = await getRequest<BackendHealthResponse>('/health');
+        const latencyMs = Math.round(performance.now() - startedAt);
 
         if (!isMounted) {
           return;
         }
 
-        setStatus(response.status === 'healthy' ? 'online' : 'offline');
+        const isHealthy = response.status === 'healthy';
+        const status: BackendHealthStatus = !isHealthy
+          ? 'offline'
+          : latencyMs > 1200
+          ? 'degraded'
+          : 'online';
+
+        setState({
+          status,
+          latencyMs,
+          lastCheckedAt: Date.now(),
+        });
       } catch {
         if (isMounted) {
-          setStatus('offline');
+          setState({
+            status: 'offline',
+            lastCheckedAt: Date.now(),
+          });
         }
       }
     };
@@ -47,29 +69,43 @@ export function useBackendHealth(pollIntervalMs = 15000) {
   }, [pollIntervalMs]);
 
   return useMemo(() => {
-    if (status === 'online') {
+    const lastPing = state.latencyMs ? `${state.latencyMs}ms` : 'n/a';
+    const checked = state.lastCheckedAt
+      ? new Date(state.lastCheckedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : 'n/a';
+
+    if (state.status === 'online') {
       return {
-        status,
-        label: 'Backend online',
+        ...state,
+        label: 'Connected',
         color: 'var(--success)',
-        background: 'var(--success-soft)',
+        tooltip: `Backend connected. Last ping ${lastPing}. Checked ${checked}.`,
       };
     }
 
-    if (status === 'offline') {
+    if (state.status === 'degraded') {
       return {
-        status,
-        label: 'Backend offline',
+        ...state,
+        label: 'Degraded',
+        color: 'var(--warning)',
+        tooltip: `Backend responsive but slow. Last ping ${lastPing}. Checked ${checked}.`,
+      };
+    }
+
+    if (state.status === 'offline') {
+      return {
+        ...state,
+        label: 'Offline',
         color: 'var(--danger)',
-        background: 'var(--danger-soft)',
+        tooltip: `Backend is offline. Last check ${checked}.`,
       };
     }
 
     return {
-      status,
-      label: 'Checking backend',
+      ...state,
+      label: 'Checking',
       color: 'var(--warning)',
-      background: 'var(--warning-soft)',
+      tooltip: 'Checking backend health...',
     };
-  }, [status]);
+  }, [state]);
 }

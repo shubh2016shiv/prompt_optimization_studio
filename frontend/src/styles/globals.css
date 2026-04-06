@@ -2,20 +2,27 @@
 
 /* Premium Dark Theme Design Tokens */
 :root {
-  /* Background layers */
-  --background: #0a0c14;
-  --surface: #0f1219;
-  --surface-raised: #151a24;
-  --surface-overlay: #1a2030;
+  /* Three-surface dark palette */
+  --surface-1: #0a0a0a;
+  --surface-2: #111111;
+  --surface-3: #1a1a1a;
+  --surface-active: #1f2020;
+
+  /* Backward-compatible aliases */
+  --background: var(--surface-1);
+  --surface: var(--surface-2);
+  --surface-raised: var(--surface-3);
+  --surface-overlay: var(--surface-active);
 
   /* Border hierarchy */
-  --border: #1e2538;
-  --border-elevated: #2a3350;
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border: #242424;
+  --border-elevated: #323232;
 
   /* Text hierarchy */
-  --text-primary: #e2e6f0;
-  --text-secondary: #8892b0;
-  --text-tertiary: #4a5270;
+  --text-primary: #e7e7e7;
+  --text-secondary: #a8a8a8;
+  --text-tertiary: #7a7a7a;
 
   /* Accent */
   --accent: #6c8aff;
@@ -224,17 +231,17 @@ code, pre { font-family: var(--font-mono); }
 /* ─── Glassmorphism ───────────────────────────────────── */
 
 .glass-card {
-  background: rgba(15, 18, 25, 0.85);
+  background: rgba(26, 26, 26, 0.85);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--border-elevated);
+  border: 1px solid var(--border-subtle);
 }
 
 .glass-footer {
-  background: rgba(10, 12, 20, 0.92);
+  background: rgba(17, 17, 17, 0.92);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-subtle);
 }
 
 /* ─── Token utilities ─────────────────────────────────── */
@@ -247,5 +254,5 @@ code, pre { font-family: var(--font-mono); }
 .bg-surface-raised   { background-color: var(--surface-raised); }
 .bg-surface-overlay  { background-color: var(--surface-overlay); }
 
-.border-default  { border-color: var(--border); }
-.border-elevated { border-color: var(--border-elevated); }
+.border-default  { border-color: var(--border-subtle); }
+.border-elevated { border-color: var(--border); }

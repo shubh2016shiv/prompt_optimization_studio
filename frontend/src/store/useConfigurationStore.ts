@@ -6,18 +6,72 @@
  */
 
 import { create } from 'zustand';
-import type { ProviderId, Model } from '@/types';
+import type { ProviderId, Model, InputVariableRow, InputVariablesMode } from '@/types';
 import { 
   PROVIDERS, 
   DEFAULT_PROVIDER_ID, 
   DEFAULT_MODEL_ID 
 } from '@/constants';
 
+function createRowId() {
+  return `var_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function createEmptyVariableRow(): InputVariableRow {
+  return {
+    id: createRowId(),
+    name: '',
+    description: '',
+  };
+}
+
+function normalizeVariableName(name: string): string {
+  return name.replace(/[{}]/g, '').trim();
+}
+
+export function serializeInputVariables(
+  mode: InputVariablesMode,
+  raw: string,
+  rows: InputVariableRow[]
+): string | undefined {
+  if (mode === 'raw') {
+    const trimmed = raw.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  const lines = rows
+    .map((row) => {
+      const cleanName = normalizeVariableName(row.name);
+      const cleanDescription = row.description.trim();
+
+      if (!cleanName && !cleanDescription) {
+        return null;
+      }
+
+      if (cleanName && cleanDescription) {
+        return `{{${cleanName}}} - ${cleanDescription}`;
+      }
+
+      if (cleanName) {
+        return `{{${cleanName}}}`;
+      }
+
+      return cleanDescription;
+    })
+    .filter((line): line is string => Boolean(line));
+
+  return lines.length > 0 ? lines.join('\n') : undefined;
+}
+
 interface ConfigurationState {
   /** The raw prompt text to optimize */
   rawPrompt: string;
-  /** Declared input variables (e.g., "{{documents}} - array of PDFs") */
-  inputVariables: string;
+  /** Freeform input variables text (raw mode fallback) */
+  inputVariablesRaw: string;
+  /** Structured input variables for row mode */
+  inputVariableRows: InputVariableRow[];
+  /** Current input variables editor mode */
+  inputVariablesMode: InputVariablesMode;
   /** Selected LLM provider */
   providerId: ProviderId;
   /** Selected model ID */
@@ -33,8 +87,21 @@ interface ConfigurationState {
 interface ConfigurationActions {
   /** Update the raw prompt */
   setRawPrompt: (prompt: string) => void;
-  /** Update the input variables */
-  setInputVariables: (variables: string) => void;
+  /** Update freeform input variables */
+  setInputVariablesRaw: (variables: string) => void;
+  /** Switch input variables editor mode */
+  setInputVariablesMode: (mode: InputVariablesMode) => void;
+  /** Add a new structured variable row */
+  addInputVariableRow: () => void;
+  /** Update a structured variable row */
+  updateInputVariableRow: (
+    id: string,
+    patch: Partial<Pick<InputVariableRow, 'name' | 'description'>>
+  ) => void;
+  /** Remove a structured variable row */
+  removeInputVariableRow: (id: string) => void;
+  /** Replace all structured variable rows */
+  setInputVariableRows: (rows: InputVariableRow[]) => void;
   /** Change the provider (resets model to first available) */
   setProvider: (providerId: ProviderId) => void;
   /** Change the model */
@@ -53,7 +120,9 @@ type ConfigurationStore = ConfigurationState & ConfigurationActions;
 
 const initialState: ConfigurationState = {
   rawPrompt: '',
-  inputVariables: '',
+  inputVariablesRaw: '',
+  inputVariableRows: [createEmptyVariableRow()],
+  inputVariablesMode: 'rows',
   providerId: DEFAULT_PROVIDER_ID,
   modelId: DEFAULT_MODEL_ID,
   apiKey: '',
@@ -75,7 +144,34 @@ export const useConfigurationStore = create<ConfigurationStore>((set) => ({
 
   setRawPrompt: (prompt) => set({ rawPrompt: prompt }),
   
-  setInputVariables: (variables) => set({ inputVariables: variables }),
+  setInputVariablesRaw: (variables) => set({ inputVariablesRaw: variables }),
+
+  setInputVariablesMode: (mode) => set({ inputVariablesMode: mode }),
+
+  addInputVariableRow: () =>
+    set((state) => ({
+      inputVariableRows: [...state.inputVariableRows, createEmptyVariableRow()],
+    })),
+
+  updateInputVariableRow: (id, patch) =>
+    set((state) => ({
+      inputVariableRows: state.inputVariableRows.map((row) =>
+        row.id === id ? { ...row, ...patch } : row
+      ),
+    })),
+
+  removeInputVariableRow: (id) =>
+    set((state) => {
+      const nextRows = state.inputVariableRows.filter((row) => row.id !== id);
+      return {
+        inputVariableRows: nextRows.length > 0 ? nextRows : [createEmptyVariableRow()],
+      };
+    }),
+
+  setInputVariableRows: (rows) =>
+    set({
+      inputVariableRows: rows.length > 0 ? rows : [createEmptyVariableRow()],
+    }),
   
   setProvider: (providerId) => {
     const provider = PROVIDERS[providerId];
@@ -115,6 +211,19 @@ export function useCurrentModel(): Model | null {
   const modelId = useConfigurationStore((state) => state.modelId);
   const provider = PROVIDERS[providerId];
   return provider?.models.find((m) => m.id === modelId) ?? null;
+}
+
+/**
+ * Selector to get serialized input variables for API payloads.
+ */
+export function useSerializedInputVariables(): string | undefined {
+  return useConfigurationStore((state) =>
+    serializeInputVariables(
+      state.inputVariablesMode,
+      state.inputVariablesRaw,
+      state.inputVariableRows
+    )
+  );
 }
 
 /**

@@ -27,14 +27,14 @@ const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
         className={cn(
           `w-full min-h-[80px] px-3 py-2
            bg-[var(--surface)] 
-           border border-[var(--border)] 
+           border border-[var(--border-subtle)] 
            rounded-lg
            text-sm text-[var(--text-primary)]
            font-mono leading-relaxed
            placeholder:text-[var(--text-tertiary)]
            transition-colors duration-150
            resize-vertical
-           focus:outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent-soft)]
+           focus:outline-none focus:border-[#1D9E75] focus:ring-1 focus:ring-[rgba(29,158,117,0.25)]
            disabled:opacity-50 disabled:cursor-not-allowed`,
           className
         )}
@@ -48,3 +48,4 @@ const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
 Textarea.displayName = 'Textarea';
 
 export { Textarea };
+

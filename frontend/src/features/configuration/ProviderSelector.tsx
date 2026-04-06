@@ -20,7 +20,7 @@ export function ProviderSelector() {
   const providerEntries = Object.entries(PROVIDERS) as [ProviderId, typeof PROVIDERS[ProviderId]][];
 
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap gap-1.5 min-w-0">
       {providerEntries.map(([id, provider]) => {
         const isSelected = selectedProviderId === id;
 
@@ -29,10 +29,11 @@ export function ProviderSelector() {
             key={id}
             onClick={() => setProvider(id)}
             className={cn(
-              `px-2.5 py-1.5 rounded-md
-               text-[11.5px] font-semibold
+              `px-2.5 py-1.5 rounded-md max-w-full
+               text-[11.5px] font-semibold leading-tight
                border transition-colors duration-150
-               focus:outline-none focus:ring-2 focus:ring-[var(--accent)]`,
+               focus:outline-none focus:ring-2 focus:ring-[var(--accent)]
+               break-words`,
               isSelected
                 ? 'border-[1.5px]'
                 : 'border-[var(--border)] bg-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-raised)]'

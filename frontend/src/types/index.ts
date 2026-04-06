@@ -59,3 +59,10 @@ export {
   VALID_PHASE_TRANSITIONS,
   isValidTransition,
 } from './workflow.types';
+
+// Configuration types
+export type {
+  InputVariablesMode,
+  InputVariableRow,
+  PromptExample,
+} from './configuration.types';

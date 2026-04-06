@@ -1,8 +1,7 @@
 /**
  * StepIndicator Component
  *
- * Shows the 4-phase workflow progress in the header.
- * Active step glows teal, completed steps show a checkmark, pending steps are muted.
+ * Four-step gated workflow indicator.
  */
 
 import { m, AnimatePresence } from 'framer-motion';
@@ -14,93 +13,103 @@ interface StepIndicatorProps {
 
 const STEPS: { id: string; label: string; phases: WorkflowPhase[] }[] = [
   { id: 'configure', label: 'Configure', phases: ['idle'] },
-  { id: 'analyse',   label: 'Analyse',   phases: ['analyzing', 'interview'] },
-  { id: 'optimise',  label: 'Optimise',  phases: ['optimizing'] },
-  { id: 'results',   label: 'Results',   phases: ['results'] },
+  { id: 'analyse', label: 'Analyse', phases: ['analyzing', 'interview'] },
+  { id: 'optimise', label: 'Optimise', phases: ['optimizing'] },
+  { id: 'results', label: 'Results', phases: ['results'] },
 ];
 
 const PHASE_ORDER: WorkflowPhase[] = ['idle', 'analyzing', 'interview', 'optimizing', 'results'];
 
-function getStepState(
-  stepIndex: number,
-  currentPhase: WorkflowPhase
-): 'pending' | 'active' | 'completed' {
-  const currentIndex = PHASE_ORDER.indexOf(currentPhase);
+type StepState = 'future' | 'active' | 'completed';
 
+function getStepState(stepIndex: number, currentPhase: WorkflowPhase): StepState {
+  const currentIndex = PHASE_ORDER.indexOf(currentPhase);
   const step = STEPS[stepIndex];
-  if (!step) return 'pending';
-  
-  const stepPhaseIndices = step.phases.map((p) => PHASE_ORDER.indexOf(p));
+
+  if (!step) {
+    return 'future';
+  }
+
+  const stepPhaseIndices = step.phases.map((value) => PHASE_ORDER.indexOf(value));
   const stepMinIndex = Math.min(...stepPhaseIndices);
   const stepMaxIndex = Math.max(...stepPhaseIndices);
 
-  if (currentIndex < stepMinIndex) return 'pending';
-  if (currentIndex > stepMaxIndex) return 'completed';
+  if (currentIndex < stepMinIndex) {
+    return 'future';
+  }
+
+  if (currentIndex > stepMaxIndex) {
+    return 'completed';
+  }
 
   return 'active';
 }
 
+function connectorFill(stepIndex: number, phase: WorkflowPhase): string {
+  const thisState = getStepState(stepIndex, phase);
+  const nextState = getStepState(stepIndex + 1, phase);
+
+  if (thisState === 'completed' && (nextState === 'completed' || nextState === 'active')) {
+    return '100%';
+  }
+
+  if (thisState === 'active') {
+    return '40%';
+  }
+
+  return '0%';
+}
+
 export function StepIndicator({ phase }: StepIndicatorProps) {
   return (
-    <div className="flex items-center gap-1" role="progressbar" aria-label="Workflow progress">
+    <div className="flex items-center gap-1.5" role="progressbar" aria-label="Workflow progress">
       {STEPS.map((step, index) => {
         const state = getStepState(index, phase);
         const isLast = index === STEPS.length - 1;
 
         return (
-          <div key={step.id} className="flex items-center gap-1">
-            {/* Step pill */}
+          <div key={step.id} className="flex items-center gap-1.5">
             <m.div
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border transition-all duration-300 ${
-                state === 'active' ? 'glow-breathe' : ''
-              }`}
+              className="px-2.5 py-1 rounded-full border inline-flex items-center gap-1.5"
               style={{
+                opacity: state === 'future' ? 0.45 : 1,
                 backgroundColor:
                   state === 'active'
-                    ? 'var(--step-active-bg)'
+                    ? 'rgba(45, 212, 191, 0.16)'
                     : state === 'completed'
-                    ? 'var(--step-completed-bg)'
-                    : 'var(--step-pending-bg)',
+                    ? 'rgba(61, 214, 140, 0.12)'
+                    : 'rgba(255, 255, 255, 0.04)',
                 borderColor:
                   state === 'active'
-                    ? 'var(--step-active-border)'
+                    ? 'rgba(45, 212, 191, 0.5)'
                     : state === 'completed'
-                    ? 'var(--step-completed-border)'
-                    : 'var(--step-pending-border)',
+                    ? 'rgba(61, 214, 140, 0.35)'
+                    : 'var(--border-subtle)',
               }}
               layout
+              aria-disabled={state === 'future'}
             >
-              {/* Step number / checkmark */}
-              <AnimatePresence mode="wait">
+              <AnimatePresence mode="wait" initial={false}>
                 {state === 'completed' ? (
                   <m.span
-                    key="check"
-                    initial={{ scale: 0, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    exit={{ scale: 0, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    style={{
-                      fontSize: '9px',
-                      color: 'var(--step-completed-text)',
-                      fontWeight: 700,
-                    }}
-                  >
-                    ✓
-                  </m.span>
-                ) : (
-                  <m.span
-                    key="num"
+                    key="complete"
                     initial={{ scale: 0.8, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
                     exit={{ scale: 0.8, opacity: 0 }}
-                    transition={{ duration: 0.15 }}
+                    style={{ fontSize: '10px', color: 'var(--success)', fontWeight: 700 }}
+                  >
+                    ?
+                  </m.span>
+                ) : (
+                  <m.span
+                    key="index"
+                    initial={{ scale: 0.8, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.8, opacity: 0 }}
                     style={{
-                      fontSize: '9px',
-                      fontWeight: 800,
-                      color:
-                        state === 'active'
-                          ? 'var(--step-active-text)'
-                          : 'var(--step-pending-text)',
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      color: state === 'active' ? 'var(--teal)' : 'var(--text-tertiary)',
                     }}
                   >
                     {index + 1}
@@ -108,36 +117,34 @@ export function StepIndicator({ phase }: StepIndicatorProps) {
                 )}
               </AnimatePresence>
 
-              {/* Label — only show for active step on narrow screens */}
               <span
                 style={{
-                  fontSize: '10px',
-                  fontWeight: 600,
-                  letterSpacing: '0.3px',
+                  fontSize: '10.5px',
+                  fontWeight: state === 'active' ? 700 : 600,
                   color:
                     state === 'active'
-                      ? 'var(--step-active-text)'
+                      ? 'var(--text-primary)'
                       : state === 'completed'
-                      ? 'var(--step-completed-text)'
-                      : 'var(--step-pending-text)',
+                      ? 'var(--success)'
+                      : 'var(--text-tertiary)',
                 }}
               >
                 {step.label}
               </span>
             </m.div>
 
-            {/* Connector */}
             {!isLast && (
               <div
-                className="w-4 h-px"
-                style={{
-                  backgroundColor:
-                    getStepState(index + 1, phase) !== 'pending'
-                      ? 'var(--step-completed-border)'
-                      : 'var(--step-pending-border)',
-                  transition: 'background-color 0.4s ease',
-                }}
-              />
+                className="relative h-[2px] w-5 rounded-full overflow-hidden"
+                style={{ backgroundColor: 'var(--border-subtle)' }}
+              >
+                <m.div
+                  className="absolute left-0 top-0 h-full rounded-full"
+                  style={{ backgroundColor: 'var(--teal)' }}
+                  animate={{ width: connectorFill(index, phase) }}
+                  transition={{ duration: 0.3, ease: 'easeOut' }}
+                />
+              </div>
             )}
           </div>
         );

@@ -2,7 +2,6 @@
  * FrameworkSelector Component
  *
  * Chips for selecting the optimization framework.
- * In `compact` mode (used inside ConfigurationPanel accordion), the PanelHeader is omitted.
  */
 
 import { m } from 'framer-motion';
@@ -13,7 +12,6 @@ import { PanelHeader } from '@/components/layout';
 import type { FrameworkId } from '@/types';
 
 interface FrameworkSelectorProps {
-  /** When true, omits the PanelHeader (used inside accordion) */
   compact?: boolean;
 }
 
@@ -21,12 +19,13 @@ export function FrameworkSelector({ compact = false }: FrameworkSelectorProps) {
   const selectedFramework = useWorkflowStore((state) => state.framework);
   const setFramework = useWorkflowStore((state) => state.setFramework);
 
-  const selectedFrameworkInfo = FRAMEWORKS.find((f) => f.id === selectedFramework);
+  const selectedFrameworkInfo = FRAMEWORKS.find((framework) => framework.id === selectedFramework);
 
   return (
-    <div>
-      {!compact && <PanelHeader icon="◈" title="Optimisation Framework" />}
-      <div className="flex flex-wrap gap-1.5 mb-2">
+    <div className="min-w-0">
+      {!compact && <PanelHeader icon="F" title="Optimisation Framework" />}
+
+      <div className="flex flex-wrap gap-1.5 mb-2 min-w-0">
         {FRAMEWORKS.map((framework) => {
           const isSelected = selectedFramework === framework.id;
 
@@ -35,10 +34,11 @@ export function FrameworkSelector({ compact = false }: FrameworkSelectorProps) {
               key={framework.id}
               onClick={() => setFramework(framework.id as FrameworkId)}
               className={cn(
-                `px-2.5 py-1.5 rounded-md
-                 text-[11.5px] font-semibold
+                `px-2.5 py-1.5 rounded-md max-w-full
+                 text-[11.5px] font-semibold leading-tight
                  border transition-colors duration-150
-                 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]`,
+                 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]
+                 break-words`,
                 isSelected
                   ? 'border-[1.5px] border-[var(--purple)] bg-[var(--purple-soft)] text-[var(--purple)]'
                   : 'border-[var(--border)] bg-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-raised)]'
@@ -55,8 +55,8 @@ export function FrameworkSelector({ compact = false }: FrameworkSelectorProps) {
       </div>
 
       {selectedFramework !== 'auto' && selectedFrameworkInfo && (
-        <p className="text-[var(--text-secondary)] pl-0.5" style={{ fontSize: 'var(--text-sm)' }}>
-          ↳ {selectedFrameworkInfo.description}
+        <p className="text-[var(--text-secondary)] pl-0.5 break-words" style={{ fontSize: 'var(--text-sm)' }}>
+          {'->'} {selectedFrameworkInfo.description}
         </p>
       )}
     </div>

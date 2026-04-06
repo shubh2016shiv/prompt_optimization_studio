@@ -44,7 +44,7 @@ const initialState: ChatState = {
   messages: [],
   inputText: '',
   isLoading: false,
-  isExpanded: true,
+  isExpanded: false,
 };
 
 /**

@@ -25,12 +25,12 @@ const SelectTrigger = React.forwardRef<
       `flex h-10 w-full items-center justify-between gap-2
        px-3 py-2
        bg-[var(--surface)] 
-       border border-[var(--border)] 
+       border border-[var(--border-subtle)] 
        rounded-lg
        text-sm text-[var(--text-primary)]
        transition-colors duration-150
        placeholder:text-[var(--text-tertiary)]
-       focus:outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent-soft)]
+       focus:outline-none focus:border-[#1D9E75] focus:ring-1 focus:ring-[rgba(29,158,117,0.25)]
        disabled:cursor-not-allowed disabled:opacity-50
        [&>span]:truncate`,
       className
@@ -55,7 +55,7 @@ const SelectContent = React.forwardRef<
       className={cn(
         `relative z-50 max-h-96 min-w-[8rem] overflow-hidden
          bg-[var(--surface-overlay)] 
-         border border-[var(--border)]
+         border border-[var(--border-subtle)]
          rounded-lg shadow-lg
          data-[state=open]:animate-in data-[state=closed]:animate-out
          data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0
@@ -121,3 +121,4 @@ export {
   SelectContent,
   SelectItem,
 };
+

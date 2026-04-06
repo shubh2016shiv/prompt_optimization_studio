@@ -1,13 +1,7 @@
 /**
  * ConfigurationPanel Component
  *
- * Left panel with three collapsible accordion sections:
- *   1. Prompt   — textarea, variables, task type
- *   2. Model    — provider, model, framework, API key, endpoint
- *   3. Guide    — how it works reference
- *
- * Task type and framework selectors are moved here from the workflow panel,
- * where they conceptually belong (they are configuration, not workflow controls).
+ * Left panel with prompt, model, and guide sections.
  */
 
 import { useState } from 'react';
@@ -21,14 +15,12 @@ import { EndpointInput } from './EndpointInput';
 import { HowItWorksGuide } from './HowItWorksGuide';
 import { TaskTypeSelector } from '@/features/workflow/controls/TaskTypeSelector';
 import { FrameworkSelector } from '@/features/workflow/controls/FrameworkSelector';
+import { useCurrentModel } from '@/store';
 
-// ─── Accordion Section ─────────────────────────────────────────
 interface AccordionSectionProps {
   id: string;
   title: string;
-  icon: string;
-  badge?: string;
-  badgeColor?: string;
+  subtitle?: string;
   isOpen: boolean;
   onToggle: () => void;
   children: React.ReactNode;
@@ -36,62 +28,48 @@ interface AccordionSectionProps {
 
 function AccordionSection({
   title,
-  icon,
-  badge,
-  badgeColor = 'var(--accent)',
+  subtitle,
   isOpen,
   onToggle,
   children,
 }: AccordionSectionProps) {
   return (
     <div
-      className="border-b border-[var(--border)]"
-      style={{ backgroundColor: isOpen ? 'transparent' : undefined }}
+      className="rounded-lg overflow-hidden min-w-0"
+      style={{
+        backgroundColor: 'var(--surface-2)',
+        border: '1px solid var(--border-subtle)',
+      }}
     >
-      {/* Header trigger */}
       <button
         onClick={onToggle}
-        className="w-full px-4 py-3 flex items-center gap-2.5 text-left transition-colors hover:bg-[var(--surface-raised)] focus:outline-none"
+        className="w-full min-w-0 px-3.5 py-3 flex items-center gap-2 text-left transition-colors hover:bg-[var(--surface-3)] focus:outline-none"
         aria-expanded={isOpen}
       >
-        {/* Icon */}
-        <span style={{ fontSize: '14px' }}>{icon}</span>
-
-        {/* Title */}
-        <span
-          className="flex-1 font-semibold"
-          style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}
-        >
-          {title}
-        </span>
-
-        {/* Optional badge */}
-        {badge && (
-          <span
-            className="px-1.5 py-0.5 rounded font-bold font-mono"
-            style={{
-              fontSize: '9px',
-              color: badgeColor,
-              backgroundColor: `${badgeColor}18`,
-              border: `1px solid ${badgeColor}30`,
-              letterSpacing: '0.3px',
-            }}
-          >
-            {badge}
-          </span>
-        )}
-
-        {/* Chevron */}
         <m.span
-          animate={{ rotate: isOpen ? 180 : 0 }}
-          transition={{ duration: 0.2 }}
-          style={{ fontSize: '10px', color: 'var(--text-tertiary)', display: 'block' }}
+          animate={{ rotate: isOpen ? 90 : 0 }}
+          transition={{ duration: 0.18 }}
+          style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}
         >
-          ▾
+          {'>'}
         </m.span>
+
+        <div className="min-w-0 flex-1">
+          <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>
+            {title}
+          </div>
+          {!isOpen && subtitle && (
+            <div
+              className="truncate"
+              style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: 1 }}
+              title={subtitle}
+            >
+              {subtitle}
+            </div>
+          )}
+        </div>
       </button>
 
-      {/* Content */}
       <AnimatePresence initial={false}>
         {isOpen && (
           <m.div
@@ -99,12 +77,10 @@ function AccordionSection({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+            transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
             style={{ overflow: 'hidden' }}
           >
-            <div className="px-4 pb-4 pt-1 space-y-4 accordion-content">
-              {children}
-            </div>
+            <div className="px-3.5 pb-3.5 pt-1 accordion-content space-y-4 min-w-0">{children}</div>
           </m.div>
         )}
       </AnimatePresence>
@@ -112,107 +88,128 @@ function AccordionSection({
   );
 }
 
-// ─── Section title label ───────────────────────────────────────
-function FieldLabel({ children }: { children: React.ReactNode }) {
+function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className="mb-1.5 font-semibold"
-      style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', letterSpacing: '0.5px', textTransform: 'uppercase' }}
+      className="mb-1.5"
+      style={{
+        fontSize: '10px',
+        color: 'var(--text-tertiary)',
+        fontWeight: 700,
+        letterSpacing: '0.06em',
+        textTransform: 'uppercase',
+      }}
     >
       {children}
     </div>
   );
 }
 
-// ─── ConfigurationPanel ────────────────────────────────────────
+function FieldName({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text-primary)', marginBottom: 6 }}>
+      {children}
+    </div>
+  );
+}
+
 export function ConfigurationPanel() {
-  // Start with Prompt open, others closed
   const [openSection, setOpenSection] = useState<string>('prompt');
+  const currentModel = useCurrentModel();
 
   const toggle = (id: string) =>
     setOpenSection((prev) => (prev === id ? '' : id));
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Panel title */}
+    <div className="flex flex-col h-full overflow-hidden min-w-0" style={{ backgroundColor: 'var(--surface-2)' }}>
       <div
-        className="px-4 py-2.5 shrink-0 flex items-center gap-2"
-        style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--surface)' }}
+        className="shrink-0 px-3.5 py-3 flex items-center gap-2"
+        style={{ borderBottom: '1px solid var(--border-subtle)' }}
       >
-        <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-tertiary)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+        <span
+          style={{
+            fontSize: '10px',
+            fontWeight: 700,
+            color: 'var(--text-tertiary)',
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+          }}
+        >
           Configuration
         </span>
         <span
-          className="ml-auto px-2 py-0.5 rounded-full font-bold"
+          className="ml-auto px-2 py-0.5 rounded-full"
           style={{
             fontSize: '9px',
+            fontWeight: 700,
             color: 'var(--teal)',
             backgroundColor: 'var(--teal-soft)',
-            border: '1px solid var(--teal-glow)',
-            letterSpacing: '0.5px',
+            border: '1px solid rgba(45, 212, 191, 0.35)',
           }}
         >
           Step 1
         </span>
       </div>
 
-      {/* Accordion sections */}
-      <div className="flex-1 overflow-y-auto">
-        {/* ① Prompt */}
+      <div className="flex-1 overflow-y-auto px-3.5 py-3.5 space-y-3.5 min-w-0">
         <AccordionSection
           id="prompt"
           title="Your Prompt"
-          icon="✏️"
-          badge="required"
-          badgeColor="var(--teal)"
           isOpen={openSection === 'prompt'}
           onToggle={() => toggle('prompt')}
         >
-          <PromptInput />
           <div>
-            <FieldLabel>Input Variables</FieldLabel>
+            <FieldName>Your Prompt</FieldName>
+            <PromptInput />
+          </div>
+
+          <div>
+            <SectionLabel>Input Variables</SectionLabel>
             <VariableInput />
           </div>
+
           <div>
-            <FieldLabel>Task Type</FieldLabel>
+            <SectionLabel>Ask Type</SectionLabel>
             <TaskTypeSelector compact />
           </div>
         </AccordionSection>
 
-        {/* ② Model */}
         <AccordionSection
           id="model"
           title="Target Model"
-          icon="🧠"
+          subtitle={currentModel?.label}
           isOpen={openSection === 'model'}
           onToggle={() => toggle('model')}
         >
           <div>
-            <FieldLabel>Provider</FieldLabel>
+            <SectionLabel>Provider</SectionLabel>
             <ProviderSelector />
           </div>
+
           <div>
-            <FieldLabel>Model</FieldLabel>
+            <SectionLabel>Model</SectionLabel>
             <ModelSelector />
           </div>
+
           <div>
-            <FieldLabel>Framework</FieldLabel>
+            <SectionLabel>Framework</SectionLabel>
             <FrameworkSelector compact />
           </div>
+
           <ApiKeyInput />
           <EndpointInput />
         </AccordionSection>
 
-        {/* ③ Guide */}
-        <AccordionSection
-          id="guide"
-          title="How It Works"
-          icon="⟳"
-          isOpen={openSection === 'guide'}
-          onToggle={() => toggle('guide')}
+        <div
+          className="rounded-lg p-3.5"
+          style={{
+            backgroundColor: 'var(--surface-3)',
+            border: '1px solid var(--border-subtle)',
+          }}
         >
+          <SectionLabel>How It Works</SectionLabel>
           <HowItWorksGuide />
-        </AccordionSection>
+        </div>
       </div>
     </div>
   );

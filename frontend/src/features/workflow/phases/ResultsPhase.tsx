@@ -48,8 +48,8 @@ function PromptBlock({ text, accent }: { text: string; accent: string }) {
         style={{
           fontSize: '11px',
           fontFamily: 'var(--font-mono)',
-          backgroundColor: 'var(--background)',
-          border: `1px solid var(--border)`,
+          backgroundColor: '#131613',
+          border: `1px solid var(--border-subtle)`,
           color: accent,
           maxHeight: 280,
           overflowY: 'auto',

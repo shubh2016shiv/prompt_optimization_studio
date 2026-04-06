@@ -10,6 +10,7 @@ import { sendChatMessage, ApiError } from '@/services';
 import { 
   useConfigurationStore,
   useCurrentModel,
+  useSerializedInputVariables,
   useWorkflowStore,
   useChatStore,
   getLimitedMessageHistory,
@@ -33,7 +34,7 @@ import type { ChatContext, ChatMessage } from '@/types';
 export function useChatSession() {
   // Configuration state
   const rawPrompt = useConfigurationStore((state) => state.rawPrompt);
-  const inputVariables = useConfigurationStore((state) => state.inputVariables);
+  const serializedInputVariables = useSerializedInputVariables();
   const providerId = useConfigurationStore((state) => state.providerId);
   const apiKey = useConfigurationStore((state) => state.apiKey);
   const model = useCurrentModel();
@@ -63,7 +64,7 @@ export function useChatSession() {
 
     return {
       raw_prompt: rawPrompt,
-      variables: inputVariables || undefined,
+      variables: serializedInputVariables,
       framework,
       task_type: taskType,
       provider: providerId,
@@ -73,7 +74,7 @@ export function useChatSession() {
       answers: Object.keys(answers).length > 0 ? answers : undefined,
       result,
     };
-  }, [rawPrompt, inputVariables, framework, taskType, providerId, model, gapData, answers, result]);
+  }, [rawPrompt, serializedInputVariables, framework, taskType, providerId, model, gapData, answers, result]);
 
   /**
    * Send a message to the chat assistant.

@@ -7,6 +7,7 @@ export {
   useCurrentProvider,
   useCurrentModel,
   useIsReasoningModel,
+  useSerializedInputVariables,
   useIsConfigurationValid,
 } from './useConfigurationStore';
 

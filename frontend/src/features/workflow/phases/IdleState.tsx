@@ -1,224 +1,164 @@
 /**
  * IdleState Component
  *
- * Full-panel hero shown when no analysis has been run.
- * Features an animated orbital logo, rich 3-step flow, and feature callouts.
+ * Centered onboarding view with capability bar and 2x2 workflow grid.
  */
 
 import { m } from 'framer-motion';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui';
 
 const FLOW_STEPS = [
   {
-    icon: '🔍',
-    label: 'Analyse',
-    sublabel: 'TCRTE gap audit across 5 dimensions',
-    color: 'var(--teal)',
-    colorSoft: 'var(--teal-soft)',
-    colorGlow: 'var(--teal-glow)',
+    id: 'analyse',
     number: '01',
+    label: 'Analyse',
+    description: 'Run TCRTE gap audit across all five dimensions.',
+    meta: '~30s',
+    color: 'var(--teal)',
+    soft: 'var(--teal-soft)',
   },
   {
-    icon: '💬',
-    label: 'Interview',
-    sublabel: 'Answer targeted questions to fill gaps',
-    color: 'var(--accent)',
-    colorSoft: 'var(--accent-soft)',
-    colorGlow: 'var(--accent-glow)',
+    id: 'interview',
     number: '02',
+    label: 'Interview',
+    description: 'Answer focused questions to close missing context.',
+    meta: '3-8 prompts',
+    color: 'var(--accent)',
+    soft: 'var(--accent-soft)',
   },
   {
-    icon: '⬡',
-    label: 'Optimise',
-    sublabel: '3 production-grade variants generated',
-    color: 'var(--purple)',
-    colorSoft: 'var(--purple-soft)',
-    colorGlow: 'rgba(181, 123, 238, 0.28)',
+    id: 'optimise',
     number: '03',
+    label: 'Optimise',
+    description: 'Generate three production-ready prompt variants.',
+    meta: '~20s',
+    color: 'var(--purple)',
+    soft: 'var(--purple-soft)',
   },
   {
-    icon: '✦',
-    label: 'Refine',
-    sublabel: 'Iterate conversationally with AI chat',
-    color: 'var(--pink)',
-    colorSoft: 'var(--pink-soft)',
-    colorGlow: 'rgba(240, 98, 146, 0.25)',
+    id: 'refine',
     number: '04',
+    label: 'Refine',
+    description: 'Iterate in chat with full workflow context loaded.',
+    meta: 'Conversational',
+    color: 'var(--pink)',
+    soft: 'var(--pink-soft)',
   },
 ];
 
-const FEATURE_PILLS = [
-  { label: 'TCRTE', color: 'var(--cyan)' },
-  { label: '9 Frameworks', color: 'var(--purple)' },
-  { label: '3 Variants', color: 'var(--success)' },
-  { label: 'CoRe + RAL', color: 'var(--orange)' },
-  { label: 'AI Chat', color: 'var(--pink)' },
-  { label: 'Auto-Select', color: 'var(--teal)' },
+const CAPABILITIES = [
+  {
+    label: 'TCRTE',
+    tooltip: 'Five-dimension coverage framework: Task, Context, Role, Tone, and Execution.',
+  },
+  {
+    label: '9 Frameworks',
+    tooltip: 'Includes KERNEL, XML Structured, TextGrad, CREATE, and additional optimizers.',
+  },
+  {
+    label: '3 Variants',
+    tooltip: 'Each run produces Conservative, Structured, and Advanced prompt variants.',
+  },
+  {
+    label: 'CoRe + RAL',
+    tooltip: 'Context Repetition and RAL writer strategies for attention blind spots.',
+  },
+  {
+    label: 'Auto-Select',
+    tooltip: 'Automatically picks framework strategy based on task type and model.',
+  },
 ];
 
 export function IdleState() {
   return (
     <m.div
-      className="flex flex-col items-center justify-center h-full gap-10 text-center px-8 overflow-y-auto py-8"
-      initial={{ opacity: 0, y: 16 }}
+      className="h-full overflow-y-auto px-6 py-6"
+      initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -12 }}
-      transition={{ duration: 0.3 }}
+      transition={{ duration: 0.25 }}
     >
-      {/* Hero logo with orbital rings */}
-      <div className="relative flex items-center justify-center hero-float" style={{ width: 96, height: 96 }}>
-        {/* Outer orbit ring */}
-        <div
-          className="absolute orbit-ring"
-          style={{
-            width: 96,
-            height: 96,
-            borderRadius: '50%',
-            border: '1px dashed rgba(45,212,191,0.25)',
-          }}
-        >
-          {/* Orbital dot */}
-          <div
-            style={{
-              position: 'absolute',
-              top: -4,
-              left: '50%',
-              transform: 'translateX(-50%)',
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              backgroundColor: 'var(--teal)',
-              boxShadow: '0 0 8px var(--teal-glow)',
-            }}
-          />
+      <div className="mx-auto" style={{ maxWidth: 820 }}>
+        <div className="text-center mb-4">
+          <h2 style={{ fontSize: '18px', color: 'var(--text-primary)', fontWeight: 700 }}>
+            Engineering-grade prompt optimisation
+          </h2>
+          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: 8 }}>
+            Paste your prompt in the left panel, then run a full TCRTE audit before generating variants.
+          </p>
         </div>
 
-        {/* Inner orbit ring */}
-        <div
-          className="absolute orbit-ring-reverse"
-          style={{
-            width: 72,
-            height: 72,
-            borderRadius: '50%',
-            border: '1px dashed rgba(108,138,255,0.20)',
-          }}
-        >
-          <div
-            style={{
-              position: 'absolute',
-              bottom: -4,
-              left: '50%',
-              transform: 'translateX(-50%)',
-              width: 6,
-              height: 6,
-              borderRadius: '50%',
-              backgroundColor: 'var(--accent)',
-              boxShadow: '0 0 8px var(--accent-glow)',
-            }}
-          />
+        <div className="flex flex-wrap items-center justify-center gap-2 mb-5">
+          {CAPABILITIES.map((capability) => (
+            <Tooltip key={capability.label} delayDuration={120}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="px-2.5 py-1 rounded-full"
+                  style={{
+                    fontSize: '12px',
+                    color: 'var(--teal)',
+                    backgroundColor: 'rgba(45, 212, 191, 0.14)',
+                    border: '1px solid rgba(45, 212, 191, 0.28)',
+                  }}
+                >
+                  {capability.label}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-[250px] leading-relaxed">
+                {capability.tooltip}
+              </TooltipContent>
+            </Tooltip>
+          ))}
         </div>
 
-        {/* Centre logo */}
-        <div
-          style={{
-            width: 48,
-            height: 48,
-            borderRadius: 14,
-            background: 'linear-gradient(135deg, var(--primary-action), var(--accent))',
-            boxShadow: '0 0 24px rgba(45,212,191,0.35), 0 4px 16px rgba(0,0,0,0.4)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 22,
-          }}
-        >
-          ⬡
-        </div>
-      </div>
-
-      {/* Headline */}
-      <div className="space-y-2" style={{ maxWidth: 520 }}>
-        <h2
-          className="font-extrabold tracking-tight"
-          style={{ fontSize: 'var(--text-xl)', color: 'var(--text-primary)', letterSpacing: '-0.3px' }}
-        >
-          Engineering-grade prompt optimisation
-        </h2>
-        <p style={{ fontSize: 'var(--text-base)', color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-          Paste your prompt in the left panel, then click{' '}
-          <strong style={{ color: 'var(--teal)' }}>Analyse Gaps</strong>{' '}
-          below. APOST audits it against 5 structural dimensions and generates 3 production-ready variants.
-        </p>
-      </div>
-
-      {/* 4-step flow */}
-      <div className="flex items-start gap-2 flex-wrap justify-center" style={{ maxWidth: 640 }}>
-        {FLOW_STEPS.map((step, index) => (
-          <div key={step.label} className="flex items-start gap-2">
-            {/* Step card */}
+        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+          {FLOW_STEPS.map((step, index) => (
             <m.div
-              className="flex flex-col items-center gap-2 px-4 py-3 rounded-xl"
+              key={step.id}
+              className="rounded-xl p-3.5"
               style={{
-                backgroundColor: step.colorSoft,
-                border: `1px solid ${step.colorGlow}`,
-                minWidth: 120,
+                minHeight: 108,
+                backgroundColor: 'var(--surface-3)',
+                border: `1px solid ${step.color}40`,
+                borderLeft: `3px solid ${step.color}`,
               }}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.35, delay: index * 0.07 }}
+              transition={{ duration: 0.25, delay: index * 0.06 }}
             >
-              <div className="flex items-center justify-between w-full">
-                <span style={{ fontSize: 18 }}>{step.icon}</span>
+              <div className="flex items-start justify-between gap-2">
                 <span
+                  className="px-1.5 py-0.5 rounded"
                   style={{
-                    fontSize: '9px',
-                    fontWeight: 800,
-                    fontFamily: 'var(--font-mono)',
+                    fontSize: '10px',
                     color: step.color,
-                    opacity: 0.6,
-                    letterSpacing: '0.5px',
+                    backgroundColor: step.soft,
+                    border: `1px solid ${step.color}50`,
+                    fontWeight: 700,
                   }}
                 >
                   {step.number}
                 </span>
+                <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{step.meta}</span>
               </div>
-              <div className="text-left w-full">
-                <div style={{ fontSize: 'var(--text-sm)', fontWeight: 700, color: step.color }}>
-                  {step.label}
-                </div>
-                <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', lineHeight: 1.4, marginTop: 2 }}>
-                  {step.sublabel}
-                </div>
-              </div>
-            </m.div>
 
-            {/* Arrow connector */}
-            {index < FLOW_STEPS.length - 1 && (
-              <span
-                style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: 18, flexShrink: 0 }}
+              <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', marginTop: 10 }}>
+                {step.label}
+              </div>
+              <p
+                style={{
+                  fontSize: '12px',
+                  color: 'var(--text-secondary)',
+                  lineHeight: 1.5,
+                  marginTop: 6,
+                }}
               >
-                →
-              </span>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* Feature pills */}
-      <div className="flex flex-wrap gap-2 justify-center" style={{ maxWidth: 480 }}>
-        {FEATURE_PILLS.map((pill) => (
-          <span
-            key={pill.label}
-            className="px-2.5 py-1 rounded-full font-semibold"
-            style={{
-              fontSize: '10.5px',
-              color: pill.color,
-              backgroundColor: `${pill.color}14`,
-              border: `1px solid ${pill.color}28`,
-            }}
-          >
-            {pill.label}
-          </span>
-        ))}
+                {step.description}
+              </p>
+            </m.div>
+          ))}
+        </div>
       </div>
     </m.div>
   );

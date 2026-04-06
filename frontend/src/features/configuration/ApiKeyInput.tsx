@@ -19,7 +19,7 @@ export function ApiKeyInput() {
   const provider = useCurrentProvider();
 
   return (
-    <div>
+    <div className="min-w-0">
       <FieldLabel required>{provider?.keyHint || 'API Key'}</FieldLabel>
       <Input
         type={showApiKey ? 'text' : 'password'}
