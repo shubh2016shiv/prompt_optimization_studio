@@ -137,6 +137,18 @@ Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) to be
 python .\run_apost_fullstack.py up
 ```
 
+Quick links anytime:
+
+```powershell
+python .\run_apost_fullstack.py urls
+```
+
+Open UI + backend docs automatically:
+
+```powershell
+python .\run_apost_fullstack.py up --open
+```
+
 You can also run via npm wrapper:
 
 ```powershell

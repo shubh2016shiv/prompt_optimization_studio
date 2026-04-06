@@ -63,7 +63,10 @@ export type FrameworkId =
   | 'textgrad'
   | 'reasoning_aware'
   | 'tcrte'
-  | 'create';
+  | 'create'
+  | 'overshoot_undershoot'
+  | 'core_attention'
+  | 'ral_writer';
 
 /** A task type category */
 export interface TaskType {

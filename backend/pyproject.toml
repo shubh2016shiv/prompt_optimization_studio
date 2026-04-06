@@ -32,6 +32,9 @@ dependencies = [
     # NumPy — cosine similarity math for Medprompt kNN retrieval
     # Used with Gemini Embedding API vectors (no local model needed)
     "numpy>=1.26.0",
+
+    # JSON Schema validation for deterministic task-evaluation scoring
+    "jsonschema>=4.23.0",
 ]
 
 [dependency-groups]

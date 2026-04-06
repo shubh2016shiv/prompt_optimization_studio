@@ -6,6 +6,7 @@
 
 import { useState } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
+import { ChevronRight } from 'lucide-react';
 import { PromptInput } from './PromptInput';
 import { VariableInput } from './VariableInput';
 import { ProviderSelector } from './ProviderSelector';
@@ -35,27 +36,27 @@ function AccordionSection({
 }: AccordionSectionProps) {
   return (
     <div
-      className="rounded-lg overflow-hidden min-w-0"
+      className="rounded-xl overflow-hidden min-w-0 shadow-sm"
       style={{
-        backgroundColor: 'var(--surface-2)',
-        border: '1px solid var(--border-subtle)',
+        backgroundColor: 'var(--surface-raised)',
+        border: '1px solid var(--border)',
       }}
     >
       <button
         onClick={onToggle}
-        className="w-full min-w-0 px-3.5 py-3 flex items-center gap-2 text-left transition-colors hover:bg-[var(--surface-3)] focus:outline-none"
+        className="w-full min-w-0 px-5 py-4 flex items-center gap-3 text-left transition-colors hover:bg-[var(--surface-overlay)] focus:outline-none"
         aria-expanded={isOpen}
       >
-        <m.span
+        <m.div
           animate={{ rotate: isOpen ? 90 : 0 }}
-          transition={{ duration: 0.18 }}
-          style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}
+          transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+          className="flex items-center justify-center"
         >
-          {'>'}
-        </m.span>
+          <ChevronRight size={16} className="text-[var(--text-tertiary)]" />
+        </m.div>
 
         <div className="min-w-0 flex-1">
-          <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>
+          <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
             {title}
           </div>
           {!isOpen && subtitle && (
@@ -77,10 +78,10 @@ function AccordionSection({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+            transition={{ type: 'spring', stiffness: 300, damping: 26, opacity: { duration: 0.2 } }}
             style={{ overflow: 'hidden' }}
           >
-            <div className="px-3.5 pb-3.5 pt-1 accordion-content space-y-4 min-w-0">{children}</div>
+            <div className="px-5 pb-5 pt-1 accordion-content space-y-5 min-w-0">{children}</div>
           </m.div>
         )}
       </AnimatePresence>
@@ -151,7 +152,7 @@ export function ConfigurationPanel() {
         </span>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3.5 py-3.5 space-y-3.5 min-w-0">
+      <div className="flex-1 overflow-y-auto px-6 py-6 space-y-5 min-w-0">
         <AccordionSection
           id="prompt"
           title="Your Prompt"
@@ -201,10 +202,10 @@ export function ConfigurationPanel() {
         </AccordionSection>
 
         <div
-          className="rounded-lg p-3.5"
+          className="rounded-xl p-5 shadow-sm"
           style={{
-            backgroundColor: 'var(--surface-3)',
-            border: '1px solid var(--border-subtle)',
+            backgroundColor: 'var(--surface-raised)',
+            border: '1px solid var(--border)',
           }}
         >
           <SectionLabel>How It Works</SectionLabel>

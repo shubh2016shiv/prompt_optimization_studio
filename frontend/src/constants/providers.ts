@@ -71,6 +71,9 @@ export const FRAMEWORKS: Framework[] = [
   { id: 'reasoning_aware', label: 'Reasoning-Aware', icon: '◎', description: 'For o-series / extended-thinking — no forced CoT' },
   { id: 'tcrte', label: 'TCRTE', icon: '⊞', description: 'Task · Context · Role · Tone · Execution — full coverage' },
   { id: 'create', label: 'CREATE', icon: '⟳', description: 'Context · Role · Instruction · Steps · Execution' },
+  { id: 'overshoot_undershoot', label: 'Overshoot/Undershoot', icon: '⇌', description: 'Dual failure-mode prevention — calibrate guard intensity for scope & depth' },
+  { id: 'core_attention', label: 'CoRe Attention', icon: '⤨', description: 'Context Repetition — restructure to mitigate lost-in-the-middle context decay' },
+  { id: 'ral_writer', label: 'RAL-Writer', icon: '◫', description: 'Retrieve-and-Restate — isolate and structurally enforce complex constraints' },
 ];
 
 /** Task types */

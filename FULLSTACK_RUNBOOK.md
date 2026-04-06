@@ -49,6 +49,16 @@ The script will:
 4. Wait for `http://127.0.0.1:8000/api/health/live`.
 5. Print ready-to-use URLs.
 
+Useful helper commands:
+
+```powershell
+# Print all quick-access links (frontend + backend docs + health)
+python .\run_apost_fullstack.py urls
+
+# Start stack and open frontend + backend docs in browser
+python .\run_apost_fullstack.py up --open
+```
+
 ## Daily operations
 
 ```powershell
