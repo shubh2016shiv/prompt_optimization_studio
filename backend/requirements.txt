@@ -17,3 +17,8 @@ python-multipart>=0.0.6
 
 # Environment variables
 python-dotenv>=1.0.0
+
+# Prompt optimization and evaluation runtime dependencies
+textgrad>=0.1.0
+numpy>=1.26.0
+jsonschema>=4.23.0

@@ -11,12 +11,12 @@ immediately. It manages:
 from __future__ import annotations
 
 import argparse
+import http.client
 import shutil
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
+import webbrowser
 from pathlib import Path
 
 
@@ -24,7 +24,10 @@ REPO_ROOT = Path(__file__).resolve().parent
 COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"
 BACKEND_ENV = REPO_ROOT / "backend" / ".env"
 BACKEND_ENV_EXAMPLE = REPO_ROOT / "backend" / ".env.example"
-LIVE_HEALTH_URL = "http://127.0.0.1:8000/api/health/live"
+APP_URL = "http://127.0.0.1:8000"
+API_DOCS_URL = f"{APP_URL}/api/docs"
+OPENAPI_URL = f"{APP_URL}/api/openapi.json"
+LIVE_HEALTH_URL = f"{APP_URL}/api/health/live"
 
 
 def _compose_cmd(*args: str) -> list[str]:
@@ -59,21 +62,67 @@ def ensure_backend_env_file() -> None:
     print("Created backend/.env from backend/.env.example")
 
 
+def _healthcheck_once() -> bool:
+    connection = http.client.HTTPConnection("127.0.0.1", 8000, timeout=5)
+    try:
+        connection.request("GET", "/api/health/live")
+        response = connection.getresponse()
+        response.read()  # Drain socket to allow clean reuse/close.
+        return response.status == 200
+    finally:
+        connection.close()
+
+
+def print_compose_diagnostics() -> None:
+    print()
+    print("Startup diagnostics:")
+    try:
+        _run(_compose_cmd("ps"), check=False)
+    except Exception:
+        pass
+
+    try:
+        _run(_compose_cmd("logs", "--tail=80", "apost"), check=False)
+    except Exception:
+        pass
+
+
 def wait_for_health(timeout_seconds: int) -> None:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(LIVE_HEALTH_URL, timeout=5) as response:
-                if response.status == 200:
-                    print(f"APOST is healthy at {LIVE_HEALTH_URL}")
-                    return
-        except (urllib.error.URLError, TimeoutError):
+            if _healthcheck_once():
+                print(f"APOST is healthy at {LIVE_HEALTH_URL}")
+                return
+        except (
+            TimeoutError,
+            http.client.HTTPException,
+            ConnectionError,
+            OSError,
+        ):
+            # During startup, the socket can accept and then close while the app
+            # process is still initializing. Treat these as retryable.
             time.sleep(2)
 
+    print_compose_diagnostics()
     raise RuntimeError(f"Timed out waiting for health endpoint: {LIVE_HEALTH_URL}")
 
 
-def cmd_up(no_build: bool, health_timeout_seconds: int) -> None:
+def print_access_urls() -> None:
+    print()
+    print("Open these links:")
+    print(f"- Frontend:      {APP_URL}")
+    print(f"- Backend docs:  {API_DOCS_URL}")
+    print(f"- Backend spec:  {OPENAPI_URL}")
+    print(f"- Health (live): {LIVE_HEALTH_URL}")
+
+
+def open_common_urls() -> None:
+    webbrowser.open(APP_URL)
+    webbrowser.open(API_DOCS_URL)
+
+
+def cmd_up(no_build: bool, health_timeout_seconds: int, open_browser: bool) -> None:
     ensure_backend_env_file()
     args = ["up", "-d"]
     if not no_build:
@@ -81,10 +130,9 @@ def cmd_up(no_build: bool, health_timeout_seconds: int) -> None:
     args.extend(["redis", "apost"])
     _run(_compose_cmd(*args))
     wait_for_health(health_timeout_seconds)
-    print()
-    print("Frontend + Backend: http://127.0.0.1:8000")
-    print("API Docs:           http://127.0.0.1:8000/api/docs")
-    print("Health (live):      http://127.0.0.1:8000/api/health/live")
+    print_access_urls()
+    if open_browser:
+        open_common_urls()
 
 
 def cmd_down() -> None:
@@ -93,10 +141,17 @@ def cmd_down() -> None:
 
 def cmd_status() -> None:
     _run(_compose_cmd("ps"))
+    print_access_urls()
 
 
 def cmd_logs() -> None:
     _run(_compose_cmd("logs", "-f", "redis", "apost"))
+
+
+def cmd_urls(open_browser: bool) -> None:
+    print_access_urls()
+    if open_browser:
+        open_common_urls()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -117,10 +172,21 @@ def build_parser() -> argparse.ArgumentParser:
         default=120,
         help="Seconds to wait for /api/health/live before failing (default: 120).",
     )
+    up_parser.add_argument(
+        "--open",
+        action="store_true",
+        help="Open frontend and backend docs URLs in the default browser after startup.",
+    )
 
     subparsers.add_parser("down", help="Stop and remove stack containers.")
     subparsers.add_parser("status", help="Show docker compose service status.")
     subparsers.add_parser("logs", help="Tail redis + apost logs.")
+    urls_parser = subparsers.add_parser("urls", help="Print quick-access URLs for frontend and backend.")
+    urls_parser.add_argument(
+        "--open",
+        action="store_true",
+        help="Open frontend and backend docs URLs in the default browser.",
+    )
     return parser
 
 
@@ -132,13 +198,15 @@ def main() -> int:
         assert_docker_available()
 
         if args.action == "up":
-            cmd_up(args.no_build, args.health_timeout_seconds)
+            cmd_up(args.no_build, args.health_timeout_seconds, args.open)
         elif args.action == "down":
             cmd_down()
         elif args.action == "status":
             cmd_status()
         elif args.action == "logs":
             cmd_logs()
+        elif args.action == "urls":
+            cmd_urls(args.open)
         else:
             parser.error(f"Unknown action: {args.action}")
             return 2
