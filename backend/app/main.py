@@ -171,9 +171,17 @@ def create_application() -> FastAPI:
         }
 
     # Serve static files (React build) in production
-    static_path = Path(__file__).parent.parent.parent / "static"
+    static_path = Path(__file__).parent.parent / "static"
     if static_path.exists():
         app.mount("/assets", StaticFiles(directory=static_path / "assets"), name="assets")
+
+        @app.get("/")
+        async def serve_root():
+            """Serve React SPA root path."""
+            index_path = static_path / "index.html"
+            if index_path.exists():
+                return FileResponse(index_path)
+            return {"error": "Frontend not built"}
 
         @app.get("/{full_path:path}")
         async def serve_spa(full_path: str):
