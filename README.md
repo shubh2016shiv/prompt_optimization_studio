@@ -134,11 +134,16 @@ Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) to be
 
 ```powershell
 # From repo root
-Copy-Item .env.example .env
-notepad .env          # set at least one API key
-
-docker compose up --build
+python .\run_apost_fullstack.py up
 ```
+
+You can also run via npm wrapper:
+
+```powershell
+npm run fullstack:up
+```
+
+Detailed operator documentation lives in `FULLSTACK_RUNBOOK.md`.
 
 Open:
 - **App UI**: `http://localhost:8000`
@@ -200,7 +205,8 @@ APOST/
 │   └── vite.config.ts
 ├── Dockerfile
 ├── docker-compose.yml
-├── .env.example
+├── run_apost_fullstack.py
+├── FULLSTACK_RUNBOOK.md
 └── README.md
 ```
 

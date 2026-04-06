@@ -26,21 +26,14 @@ services:
     container_name: apost
     ports:
       - "8000:8000"
+    env_file:
+      - ./backend/.env
     environment:
       # App Configuration
       - DEBUG=false
-      - CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
-      
-      # LLM API Keys (set via .env file or environment)
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
-      
-      # Optimizer Configuration
-      - OPTIMIZER_MODEL=claude-sonnet-4-20250514
-      - MAX_TOKENS_GAP_ANALYSIS=1500
-      - MAX_TOKENS_OPTIMIZATION=4096
-      - MAX_TOKENS_CHAT=2048
+      - CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000,http://localhost:5173,http://127.0.0.1:5173
+
+      # Core runtime wiring
       - REDIS_URL=redis://redis:6379/0
       - REDIS_FAIL_FAST=true
     depends_on:
@@ -48,7 +41,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3

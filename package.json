@@ -3,6 +3,10 @@
   "private": true,
   "scripts": {
     "dev": "powershell -ExecutionPolicy Bypass -File ./scripts/dev.ps1",
-    "docker:up": "docker compose up --build"
+    "docker:up": "python ./run_apost_fullstack.py up",
+    "fullstack:up": "python ./run_apost_fullstack.py up",
+    "fullstack:down": "python ./run_apost_fullstack.py down",
+    "fullstack:status": "python ./run_apost_fullstack.py status",
+    "fullstack:logs": "python ./run_apost_fullstack.py logs"
   }
 }
