@@ -145,6 +145,8 @@ npm run fullstack:up
 
 Detailed operator documentation lives in `FULLSTACK_RUNBOOK.md`.
 
+Note: In this Docker mode, Redis stays internal to the Compose network (no host `6379` binding), which avoids local Redis port conflicts.
+
 Open:
 - **App UI**: `http://localhost:8000`
 - **API docs**: `http://localhost:8000/api/docs`

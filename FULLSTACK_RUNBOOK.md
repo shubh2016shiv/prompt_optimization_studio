@@ -104,13 +104,13 @@ localhost:8000  --->  apost container (FastAPI + static frontend)
   - `python .\run_apost_fullstack.py up --health-timeout-seconds 240`
 - See detailed logs:
   - `python .\run_apost_fullstack.py logs`
+- Redis host port collisions (`6379 already allocated`): no longer applicable in full-stack mode because Redis is internal-only and not bound to host.
 
 ## Dev hot-reload alternative
 
-For UI/backend code iteration with hot reload, run frontend and backend locally, but keep Redis in Docker:
+For UI/backend code iteration with hot reload, run frontend and backend locally. In this mode Redis can be optional (the API starts but logs degraded Redis health if Redis is unavailable):
 
 ```powershell
-docker compose up -d redis
 cd backend
 uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 

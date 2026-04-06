@@ -1,0 +1,36 @@
+# VCS and metadata
+.git
+.gitignore
+
+# Python caches and virtual envs
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+backend/.venv/
+backend/.pytest_cache/
+backend/.mypy_cache/
+
+# Node artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Local env and logs
+**/.env
+**/.env.*
+backend/*.log
+backend/tmp_*.log
+backend/pytest_output.txt
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Documentation and misc heavy root artifacts not required for image build
+*.md
+GAP*.md
+PromptOptimizer.jsx
+what_APOST_does.md
