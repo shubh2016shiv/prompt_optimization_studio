@@ -7,6 +7,7 @@ Also manages application lifecycle with durable Redis-backed orchestration.
 
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
@@ -61,6 +62,7 @@ async def lifespan(app: FastAPI):
 
     app.state.redis_store = redis_store
     app.state.optimization_job_service = OptimizationJobService(job_store=redis_store)
+    app.state.started_at_utc = datetime.now(timezone.utc)
 
     # Corpus is now lazy and cache-backed, so no expensive warm-up at startup.
     app.state.few_shot_corpus = None
@@ -111,6 +113,24 @@ def create_application() -> FastAPI:
     app.include_router(chat.router, prefix="/api", tags=["Chat"])
 
     # Health check endpoint
+    @app.get("/api/health/live", tags=["Health"])
+    async def liveness_check():
+        """Lightweight process-level liveness endpoint for frontend heartbeat polling."""
+        started_at = getattr(app.state, "started_at_utc", None)
+        uptime_seconds = None
+        if started_at is not None:
+            uptime_seconds = round(
+                max(0.0, (datetime.now(timezone.utc) - started_at).total_seconds()),
+                3,
+            )
+
+        return {
+            "status": "ok",
+            "service": settings.app_name,
+            "version": settings.app_version,
+            "uptime_seconds": uptime_seconds,
+        }
+
     @app.get("/api/health", tags=["Health"])
     async def health_check():
         """Health check endpoint with active dependency probes."""

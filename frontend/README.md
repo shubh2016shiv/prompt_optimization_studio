@@ -48,12 +48,19 @@ The application will start on **http://localhost:5173**.
 
 The Vite development server is configured (`vite.config.ts`) to proxy all API requests (e.g., `/api/optimize`) directly to the backend. 
 
-1. Before interacting with the UI, ensure your backend server is running in its own terminal window on **port 8080**:
+1. Before interacting with the UI, ensure your backend server is running in its own terminal window on **port 8000**:
    ```bash
    # In the backend/ directory
-   uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8080
+   uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
    ```
 2. The frontend proxy will seamlessly forward your requests. You do not need to configure any full URLs in the frontend code; everything uses relative `/api/...` paths.
+
+Optional: if your backend runs on a different host/port, set `VITE_DEV_API_PROXY_TARGET` before starting Vite.
+```bash
+# Example (PowerShell)
+$env:VITE_DEV_API_PROXY_TARGET = "http://127.0.0.1:8080"
+npm run dev
+```
 
 ---
 

@@ -56,7 +56,7 @@ export function ThreeColumnLayout({
       setShowOfflineToast(true);
     }
 
-    if (backendHealth.status === 'online') {
+    if (backendHealth.status !== 'offline') {
       setShowOfflineToast(false);
     }
 
