@@ -113,7 +113,7 @@ export function ChatPanel() {
 
   return (
     <m.div
-      className="flex flex-col h-full"
+      className="flex-1 flex flex-col h-full min-h-0 overflow-hidden"
       initial={{ x: 24, opacity: 0.92 }}
       animate={{ x: 0, opacity: 1 }}
       transition={{ duration: 0.28, ease: 'easeOut' }}
@@ -159,7 +159,7 @@ export function ChatPanel() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      <div className="flex-1 overflow-y-auto min-h-0 p-3 space-y-3 overscroll-contain">
         {!hasMessages ? (
           <EmptyChat />
         ) : (

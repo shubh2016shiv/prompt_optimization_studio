@@ -97,7 +97,10 @@ export function ThreeColumnLayout({
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[var(--surface-1)]">
+    <div
+      className="flex flex-col bg-[var(--surface-1)] overflow-hidden"
+      style={{ height: '100dvh', minHeight: '100vh' }}
+    >
       <header
         className="shrink-0 border-b relative overflow-hidden"
         style={{
@@ -183,14 +186,13 @@ export function ThreeColumnLayout({
       </header>
 
       <m.main
-        className="flex-1 flex overflow-hidden"
-        style={{ height: `calc(100vh - 52px)` }}
+        className="flex-1 flex overflow-hidden min-h-0"
         variants={STAGGER_CONTAINER_VARIANTS}
         initial="hidden"
         animate="visible"
       >
         <m.aside
-          className="shrink-0 overflow-y-auto flex flex-col min-w-0"
+          className="shrink-0 overflow-y-auto flex flex-col min-w-0 min-h-0"
           style={{
             width: leftPanelWidth,
             backgroundColor: 'var(--surface-2)',
@@ -216,7 +218,7 @@ export function ThreeColumnLayout({
         />
 
         <m.section
-          className="flex-1 flex flex-col overflow-hidden min-w-0"
+          className="flex-1 flex flex-col overflow-hidden min-w-0 min-h-0"
           style={{
             minWidth: LAYOUT.minMiddlePanelWidth,
             backgroundColor: 'var(--surface-1)',
@@ -227,7 +229,7 @@ export function ThreeColumnLayout({
         </m.section>
 
         <m.aside
-          className="shrink-0 border-l flex flex-col overflow-hidden"
+          className="shrink-0 border-l flex flex-col overflow-hidden min-h-0"
           style={{
             width: rightPanelWidth,
             backgroundColor: 'var(--surface-2)',

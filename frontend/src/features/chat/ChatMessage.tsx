@@ -71,6 +71,19 @@ function parseMessageContent(text: string): React.ReactNode[] {
  */
 export function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === 'user';
+  const bubbleStyle = isUser
+    ? {
+        background: 'linear-gradient(135deg, var(--accent-soft), var(--purple-soft))',
+        border: '1px solid var(--accent)30',
+        color: 'var(--text-primary)',
+        maxWidth: '88%',
+      }
+    : {
+        backgroundColor: 'var(--surface)',
+        border: '1px solid var(--border)',
+        color: 'var(--text-primary)',
+        maxWidth: '96%',
+      };
 
   return (
     <m.div
@@ -88,22 +101,15 @@ export function ChatMessage({ message }: ChatMessageProps) {
 
       {/* Message bubble */}
       <div
-        className={`max-w-[${isUser ? '88%' : '96%'}] p-3 text-[${isUser ? '12.5px' : '12px'}] leading-relaxed ${isUser ? 'rounded-[11px_11px_3px_11px]' : 'rounded-[11px_11px_11px_3px]'}`}
-        style={isUser ? {
-          background: 'linear-gradient(135deg, var(--accent-soft), var(--purple-soft))',
-          border: '1px solid var(--accent)30',
-          color: 'var(--text-primary)',
-          maxWidth: '88%',
-        } : {
-          backgroundColor: 'var(--surface)',
-          border: '1px solid var(--border)',
-          color: 'var(--text-primary)',
-          maxWidth: '96%',
-          wordBreak: 'break-word',
+        className={`p-3 leading-relaxed overflow-y-auto ${isUser ? 'text-[12.5px] rounded-[11px_11px_3px_11px]' : 'text-[12px] rounded-[11px_11px_11px_3px]'}`}
+        style={{
+          ...bubbleStyle,
+          maxHeight: 'min(38vh, 24rem)',
+          overflowWrap: 'anywhere',
         }}
       >
         {isUser ? (
-          <span className="whitespace-pre-wrap">{message.content}</span>
+          <span className="whitespace-pre-wrap break-words">{message.content}</span>
         ) : (
           parseMessageContent(message.content)
         )}
