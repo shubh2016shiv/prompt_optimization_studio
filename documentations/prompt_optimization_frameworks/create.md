@@ -1,428 +1,493 @@
-# CREATE: A Comprehensive Guide to Prompt Optimization
-### *Character, Request, Examples, Adjustments, Type of Output, Extras*
+# CREATE Prompt Optimization: Educational Guide
+### Character, Request, Examples, Adjustments, Type of Output, Extras
 
-> **Who this guide is for:** Both newcomers who want to understand how to balance creative freedom with structural reliability in prompts, and seasoned engineers who want to understand CREATE's deep rewrite pipeline, its implementation logic, and its production trade-offs. Read top-to-bottom for the full mental model, or jump to any section independently.
+> **Who this guide is for:** Readers who want to understand CREATE as APOST implements it: a deep rewrite framework for prompts that need expressive voice, clear creative direction, hard constraints, and reliable output shape at the same time.
 
----
+## 1. Introductory Overview
 
-## Table of Contents
+CREATE is APOST's prompt optimization framework for tasks where style and structure both matter. It is especially useful for writing, editing, messaging, creative drafting, persona-driven assistants, and user-facing responses where the model must sound a certain way while still following strict rules.
 
-1. [What Problem Does CREATE Solve?](#1-what-problem-does-create-solve)
-2. [The Research Foundations](#2-the-research-foundations)
-3. [The Core Mental Model](#3-the-core-mental-model)
-4. [The Six Pillars Explained](#4-the-six-pillars-explained)
-5. [How It Works: The Algorithm](#5-how-it-works-the-algorithm)
-6. [The CREATE Blueprint](#6-the-create-blueprint)
-7. [The Three Optimization Tiers](#7-the-three-optimization-tiers)
-8. [The Quality Gate](#8-the-quality-gate)
-9. [Implementation Architecture](#9-implementation-architecture)
-10. [Configuration and Tuning](#10-configuration-and-tuning)
-11. [When to Use CREATE (and When Not To)](#11-when-to-use-create-and-when-not-to)
-12. [Diagnosing Common Failures](#12-diagnosing-common-failures)
-13. [Performance Playbook](#13-performance-playbook)
-14. [Future Directions](#14-future-directions)
-15. [References](#15-references)
+CREATE stands for **Character, Request, Examples, Adjustments, Type of Output, Extras**. These six parts are called the framework's **pillars**, meaning they are the named categories that CREATE uses to separate the prompt's creative instructions from its operational requirements.
 
----
+The framework solves a familiar production problem: creative prompts often mix voice, task, examples, rules, format, and edge cases in one blob. A model may follow the tone but ignore the format, copy the example too literally, or obey a style instruction while breaking a business rule. CREATE reduces that confusion by extracting a **CREATE blueprint**, which is a structured intermediate map of the six pillars plus safety and verification fields, then using that blueprint to generate three progressively stronger prompt variants.
 
-## 1. What Problem Does CREATE Solve?
+In the codebase, CREATE is implemented by `CreateOptimizer` in `backend/app/services/optimization/frameworks/create_optimizer.py`. It is not a static heading template. The optimizer enriches the raw prompt with gap-interview answers, parses the CREATE blueprint as JSON, runs three objective-specific deep rewrites, falls back to a deterministic template if a model call fails, injects runtime variables, optionally adds provider-specific prefill metadata, and finally runs the shared quality gate.
 
-### The "Creative Chaos" Problem
+Use CREATE when a prompt needs a controlled creative voice without becoming loose or unparseable. It is the framework for "make it expressive, but keep it reliable."
 
-While frameworks like KERNEL and XML Structured Bounding are excellent for rigid, analytical tasks (like extraction and routing), they can over-constrain tasks that require nuance, tone, and stylistic execution. 
+## 2. Framework-Specific Terminology Explained
 
-However, raw "creative" prompts are notoriously fragile in production. They blur together:
-- **Tone vs. Rules:** "Write a fun email but don't promise refunds" mixes persona with a hard constraint.
-- **Intent vs. Format:** "Summarize this into a dramatic 3-paragraph JSON" muddles the structural contract completely.
-- **Demonstrations vs. Requirements:** Examples are provided, but the model doesn't know if it should copy the *style* of the example or the *content* of the example.
+This terminology is specific to CREATE as an APOST optimization framework.
 
-This blurring causes a high rate of format violations, persona drift, and ignored safety rules when deployed at scale.
+### CREATE
 
-> **Mental Model — The Method Actor and the Director:** A raw prompt treats the LLM like an amateur actor: "Just go out there and be funny, but make sure you hit your marks and don't swear." CREATE acts as a professional director assigning a role. It separates the character (the persona), the script (the request), the blocking constraints (adjustments), and the camera setup (type of output) into explicit, distinct categories.
+**Plain meaning:** A six-part framework for organizing creative or persona-heavy prompts.
 
-### What CREATE Produces
+**Example:** A campaign email prompt can be split into character, request, examples, adjustments, output type, and extras.
 
-CREATE takes a sprawling, mixed-intent prompt and restructures it into six explicit pillars that separate creative expression from deterministic constraints. This ensures the output remains expressive and stylistically aligned while adhering to rigid production formats.
+**Why it matters:** CREATE keeps voice and creativity from colliding with constraints and output format.
 
----
+**How it connects:** Every parse, rewrite, fallback, and variant in the optimizer is built around these six pillars.
 
-## 2. The Research Foundations
+### Pillar
 
-CREATE is grounded in research on how Large Language Models separate stylistic emulation from semantic reasoning.
+**Plain meaning:** One of CREATE's six required prompt categories.
 
-### 2.1 Persona Adoption and Instruction Bleed
+**Example:** `Character` is a pillar that defines the voice or persona. `Type of Output` is a pillar that defines the response format.
 
-**The finding:** LLMs instruction-tuned with RLHF are highly capable of adopting personas ("act as a Pirate"), but maintaining that persona increases cognitive load and often causes the model to "bleed" out of its constraints or forget the primary task.
-**How CREATE operationalizes this:** By structurally isolating the `Character` from the `Adjustments` (constraints). When the persona is explicitly separated from the operational rules, the model is less likely to prioritize tone over compliance.
+**Why it matters:** Pillars make the prompt reviewable. If the voice fails, inspect Character. If the format fails, inspect Type of Output.
 
-### 2.2 Demonstration Anchoring (Few-Shot Prompting)
+### Character
 
-**The finding:** Providing explicit examples (even just one or two) anchors both style and format far more effectively than zero-shot instructions. (Brown et al., 2020)
-**How CREATE operationalizes this:** The `Examples` pillar is a dedicated structural section. This forces the optimization rewrite to clarify exactly *what* the example is demonstrating (e.g., "Note how this example uses a specific tone, but does not use the actual data you should use").
+**Plain meaning:** The persona, role, expertise, or voice the model should adopt.
 
-### 2.3 Explicit Output Contracts
+**Example:** "You are a senior lifecycle marketer writing with warmth and restraint."
 
-**The finding:** Bounding the output space (e.g., "provide exactly three sentences") significantly reduces hallucination and verbosity drift.
-**How CREATE operationalizes this:** The `Type of Output` pillar explicitly separates the content requirements from the schema requirements, ensuring downstream parsers don't break.
+**Why it matters:** Creative tasks often fail when the model defaults to a generic assistant voice.
 
----
+**How it connects:** The parser extracts `character`, the rewrite preserves it, and the variants use it to anchor tone and perspective.
 
-## 3. The Core Mental Model
+### Request
 
-### Expressiveness + Reliability
+**Plain meaning:** The single bounded task the model must complete.
 
-Most prompt engineers believe there is a direct trade-off between how creative a prompt is and how reliable it is. CREATE proves this false by using **containment**.
+**Example:** "Write a welcome email for a new trial user."
 
-You can let a model be as creative, verbose, or stylistically unique as necessary *provided* those instructions are contained within the `Character` and `Request` pillars, while the `Adjustments` and `Type of Output` pillars remain rigidly deterministic.
+**Why it matters:** Creative prompts can sprawl. Request keeps the model focused on one deliverable.
 
-```
-┌────────────────────────────────────────────────────────┐
-│  THE CREATE CONTAINMENT STRATEGY                       │
-│                                                        │
-│  [ EXPRESSIVE ZONE ]                                   │
-│  Character: Be warm, empathetic, and slightly poetic.  │
-│  Request:   Write a welcoming onboarding email.        │
-│  Examples:  "Welcome aboard, voyager of the stars..."  │
-│                                                        │
-│  [ DETERMINISTIC ZONE ]                                │
-│  Adjustments:    MUST NOT offer discounts.             │
-│                  MUST reference the user_name variable.│
-│  Type of Output: JSON {"subject": str, "body": str}    │
-│  Extras:         If user_name is missing, use "friend".│
-└────────────────────────────────────────────────────────┘
-```
+### Examples
 
----
+**Plain meaning:** Reference material that shows the model a style, format, or pattern to imitate.
 
-## 4. The Six Pillars Explained
+**Example:** A sample subject line and email body that demonstrate the desired pacing.
 
-The acronym CREATE corresponds to the six structural elements the framework enforces.
+**Why it matters:** Examples are powerful, but ambiguous examples can cause copying or unintended style transfer. CREATE isolates them so the model knows they are references, not the live task.
 
-### C — Character
-**Role:** The persona, perspective, or expertise the assistant must adopt.
-**Prevents:** Tone drift, generic "AI-sounding" responses, and inconsistent voice.
+### Adjustments
 
-### R — Request
-**Role:** The single bounded task objective. What explicitly needs to be done.
-**Prevents:** Scope creep and multi-objective confusion.
+**Plain meaning:** Hard rules, constraints, and refinements that modify how the request should be fulfilled.
 
-### E — Examples
-**Role:** Reference patterns, demonstrations, or exemplars.
-**Prevents:** Formatting mismatches and stylistic misunderstandings.
+**Example:** "MUST mention the product name. MUST NOT promise a refund."
 
-### A — Adjustments
-**Role:** Hard constraints, MUST rules, and MUST NOT behaviors.
-**Prevents:** Hallucination, ignored rules, and business logic violations.
+**Why it matters:** This pillar separates rules from voice. A fun tone should never override a compliance boundary.
 
-### T — Type of Output
-**Role:** The explicit structural contract (e.g., markdown, JSON, byte-limits).
-**Prevents:** Unparseable results and downstream integration failures.
+### Type of Output
 
-### E — Extras
-**Role:** Safety bounds, failure-mode handling, and edge-cases.
-**Prevents:** Confident failures when data is missing or ambiguous.
+**Plain meaning:** The required response structure or format.
 
----
+**Example:** "Return JSON with `subject` and `body` fields."
 
-## 5. How It Works: The Algorithm
+**Why it matters:** Creative quality is not enough in production if downstream code cannot parse the result.
 
-### High-Level Flow
+### Extras
 
-The CREATE pipeline performs a deep extraction followed by objective-specific rewrites. It does not simply paste the original text under headings.
+**Plain meaning:** Edge-case handling, safety notes, reliability instructions, or additional context that does not fit the other pillars.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    CREATE ALGORITHM FLOW                        │
-└─────────────────────────────────────────────────────────────────┘
+**Example:** "If the user's name is missing, use a neutral greeting."
 
-  ┌──────────────────────────────────────┐
-  │  STAGE 1: ENRICH                     │
-  │  Merge gap-interview answers into    │
-  │  the raw prompt to fill missing intent│
-  └───────────────┬──────────────────────┘
-                  │
-                  ▼
-  ┌──────────────────────────────────────┐
-  │  STAGE 2: BLUEPRINT PARSE            │
-  │  LLM → strict JSON extraction        │
-  │                                      │
-  │  Extracts the 6 pillars PLUS:        │
-  │  • forbidden_behaviors (MUST NOT)    │
-  │  • verification_checks               │
-  │                                      │
-  │  ❌ Parse fails? → Use default       │
-  │     conservative blueprint           │
-  └───────────────┬──────────────────────┘
-                  │
-                  ▼
-  ┌──────────────────────────────────────┐
-  │  STAGE 3: TIERED DEEP REWRITES       │
-  │  3 parallel full rewrites            │
-  │                                      │
-  │  ┌─────────┐ ┌──────────┐ ┌───────┐ │
-  │  │CONSERV- │ │STRUCTURED│ │ADVANC-│ │
-  │  │ATIVE    │ │          │ │ED     │ │
-  │  │         │ │          │ │       │ │
-  │  │Pillar   │ │MUST/MUST │ │Strict │ │
-  │  │alignment│ │NOT,      │ │valid- │ │
-  │  │         │ │execution │ │ation &│ │
-  │  │         │ │choreogr- │ │anti-  │ │
-  │  │         │ │aphy      │ │halluc │ │
-  │  └────┬────┘ └────┬─────┘ └───┬───┘ │
-  │       │           │           │     │
-  │  ❌fail?      ❌fail?     ❌fail?   │
-  │       ↓           ↓           ↓     │
-  │  Deterministic template fallback      │
-  └───────────────┬──────────────────────┘
-                  │
-                  ▼
-  ┌──────────────────────────────────────┐
-  │  STAGE 4: INJECT VARIABLES           │
-  │  Append {{input_variables}} block    │
-  └───────────────┬──────────────────────┘
-                  │
-                  ▼
-  ┌──────────────────────────────────────┐
-  │  STAGE 5: QUALITY GATE               │
-  │  Internal judge critiques variants   │
-  └──────────────────────────────────────┘
+**Why it matters:** Extras prevent brittle behavior when inputs are incomplete or ambiguous.
+
+### CREATE Blueprint
+
+**Plain meaning:** The structured JSON representation extracted from the raw prompt before the final rewrites.
+
+**Example:** The blueprint contains `character`, `request`, `examples`, `adjustments`, `type_of_output`, `extras`, `forbidden_behaviors`, and `verification_checks`.
+
+**Why it matters:** The blueprint is the optimizer's intermediate representation. It lets CREATE reason about the prompt before rewriting it.
+
+### Forbidden Behaviors
+
+**Plain meaning:** Explicit things the model must not do.
+
+**Example:** "Do not invent unsupported claims" or "Do not include legal guarantees."
+
+**Why it matters:** Users often imply boundaries without stating them as MUST NOT rules. CREATE makes those boundaries explicit.
+
+### Verification Checks
+
+**Plain meaning:** Conditions the model should check before producing the final answer.
+
+**Example:** "Confirm the output has exactly two fields" or "Confirm no unsupported factual claim was added."
+
+**Why it matters:** Verification turns the prompt into a small checklist, making format and rule adherence easier to audit.
+
+### Deep Rewrite
+
+**Plain meaning:** A full end-to-end rewrite of the prompt from the blueprint, not a simple heading insertion.
+
+**Example:** The Structured tier may reorganize rules into MUST and MUST NOT boundaries and add ordered execution logic.
+
+**Why it matters:** Deep rewrites produce genuinely different prompt architectures across tiers.
+
+### Guarded Fallback
+
+**Plain meaning:** A deterministic backup prompt generated when blueprint parsing or tier rewriting fails.
+
+**Example:** `_fallback_create_prompt()` serializes the blueprint into CHARACTER, REQUEST, EXAMPLES, ADJUSTMENTS, TYPE OF OUTPUT, EXTRAS, and VERIFICATION sections.
+
+**Why it matters:** APOST should still return usable variants even when an LLM sub-call misbehaves.
+
+### Input Variables
+
+**Plain meaning:** Runtime placeholders appended to the generated system prompt.
+
+**Example:** `{{user_name}}`, `{{product_name}}`, or `{{customer_segment}}`.
+
+**Why it matters:** CREATE must show the model what dynamic data will be supplied without letting those variables blur into the static creative brief.
+
+### Prefill Suggestion
+
+**Plain meaning:** A suggested first token or phrase for providers that support assistant prefill behavior.
+
+**Example:** For JSON tasks, the suggestion may be `{`.
+
+**Why it matters:** It can help lock the output format for some provider/task combinations.
+
+### Quality Gate
+
+**Plain meaning:** A shared APOST critique step that can score and improve generated variants.
+
+**Example:** If a variant has weak constraints or unclear output format, the quality gate may enhance it before the response returns.
+
+**Why it matters:** CREATE handles creative structure, but the quality gate checks whether the resulting prompt is strong enough.
+
+## 3. Problem the Framework Solves
+
+CREATE addresses production failures that happen when creative prompts are not structurally separated.
+
+The first failure is **persona drift**. The model starts in the requested voice but gradually returns to a generic assistant style. CREATE counters this by isolating Character as its own pillar.
+
+The second failure is **example confusion**. The model may copy example content instead of using the example as a style or format reference. CREATE separates Examples from the live Request and Adjustments.
+
+The third failure is **constraint dilution**. A prompt may say "be playful" near "do not promise discounts," and the model may treat both with equal authority. CREATE separates expressive instructions from mandatory rules.
+
+The fourth failure is **format drift**. Creative tasks often produce beautiful prose that does not fit a required schema. CREATE gives Type of Output its own pillar.
+
+The fifth failure is **edge-case collapse**. If a variable is missing or the source material is ambiguous, the model may invent details. CREATE uses Extras, forbidden behaviors, and verification checks to make fallback behavior explicit.
+
+## 4. Core Mental Model
+
+CREATE is best understood as a creative brief with a production checklist attached.
+
+A creative brief gives a writer voice, audience, examples, and purpose. A production checklist gives a system hard rules, output format, safety boundaries, and verification steps. CREATE combines both. It lets the model be expressive inside the right container.
+
+```mermaid
+flowchart TD
+  A["Raw creative prompt"] --> B["CREATE blueprint"]
+  B --> C["Expressive zone: Character, Request, Examples"]
+  B --> D["Control zone: Adjustments, Type of Output, Extras"]
+  C --> E["Tiered rewrite variants"]
+  D --> E
+  E --> F["Quality gate"]
 ```
 
-### Pseudo-code
+Read this diagram from top to bottom. The raw prompt is first converted into a CREATE blueprint. That blueprint separates the expressive zone from the control zone. Both zones then feed the tiered rewrites, and the quality gate evaluates the results.
 
-```python
-def create_optimize(request):
-    # Stage 1: Enrich
-    enriched = integrate_gap_answers(request)
+The practical lesson is that CREATE does not reduce creativity. It gives creativity a better boundary so reliability can survive alongside it.
 
-    # Stage 2: Parse Blueprint
-    blueprint = llm_parse_json(enriched, schema=CREATE_SCHEMA)
-    # Falls back to _default_blueprint() on error
+## 5. Main Principles or Pillars
 
-    # Stage 3: Deep Rewrites
-    rewritten = {}
-    for tier in ["conservative", "structured", "advanced"]:
-        try:
-            rewritten[tier] = llm_rewrite(
-                raw_prompt=enriched,
-                blueprint=blueprint,
-                objective=TIER_OBJECTIVES[tier]
-            )
-        except Exception:
-            rewritten[tier] = deterministic_fallback_create(blueprint, tier=tier)
+### Principle 1: Separate Voice from Rules
 
-    # Stage 4: Inject Variables
-    for tier in rewritten:
-        rewritten[tier] = inject_input_variables(rewritten[tier], request)
+**What it means:** Character controls how the model sounds. Adjustments and forbidden behaviors control what the model must or must not do.
 
-    # Stage 5: Quality Gate
-    response = build_variants(rewritten)
-    return quality_gate(response, request)
+**Failure it prevents:** A strong persona overriding a hard business or safety rule.
+
+**How it works:** The blueprint stores persona and constraints in different fields.
+
+**Why it matters:** Creative style should decorate the task, not govern the rules.
+
+### Principle 2: Keep One Bounded Request
+
+**What it means:** The prompt should have one primary objective.
+
+**Failure it prevents:** Scope creep, multi-objective confusion, and outputs that try to satisfy too many goals at once.
+
+**How it works:** The parser extracts a single `request`, and the rewrite prompt explicitly says to keep one bounded objective.
+
+**Why it matters:** A creative prompt can still be precise.
+
+### Principle 3: Treat Examples as References
+
+**What it means:** Examples should show style, structure, or pattern without becoming live content.
+
+**Failure it prevents:** Copying example details into the final answer.
+
+**How it works:** Examples are extracted into their own blueprint field and rewritten as reference material.
+
+**Why it matters:** Few-shot style guidance works best when the model knows what the examples are demonstrating.
+
+### Principle 4: Make Output Format Explicit
+
+**What it means:** The final response shape must be its own instruction.
+
+**Failure it prevents:** Beautiful but unparseable output.
+
+**How it works:** `type_of_output` becomes a dedicated section in fallback prompts and a required focus in rewrite prompts.
+
+**Why it matters:** Production systems need stable output contracts.
+
+### Principle 5: Add Verification Before Final Output
+
+**What it means:** The model should check whether it satisfied the core rules before answering.
+
+**Failure it prevents:** Missing fields, broken constraints, unsupported claims, and edge-case failures.
+
+**How it works:** CREATE extracts `verification_checks`, and Structured/Advanced fallbacks add execution order and validation language.
+
+**Why it matters:** Verification makes the prompt easier to debug and safer to deploy.
+
+## 6. Step-by-Step Algorithm or Workflow
+
+### Step 1: Enrich the raw prompt
+
+The optimizer first calls `integrate_gap_interview_answers_into_prompt()`. A gap interview answer is extra information the user supplied after APOST asked clarifying questions.
+
+This matters because creative prompts often depend on audience, tone, or brand context that may not appear in the original prompt.
+
+### Step 2: Parse the CREATE blueprint
+
+`_parse_create_blueprint()` asks an LLM to return strict JSON with the CREATE fields. The response is normalized so missing fields get safe defaults.
+
+The blueprint fields are:
+
+- `character`
+- `request`
+- `examples`
+- `adjustments`
+- `type_of_output`
+- `extras`
+- `forbidden_behaviors`
+- `verification_checks`
+
+If parsing fails, `_default_blueprint()` creates a conservative baseline so the pipeline can continue.
+
+### Step 3: Run three tier-specific rewrite passes
+
+CREATE defines three rewrite objectives:
+
+- **Conservative:** preserve the six pillars while improving clarity and bounded scope.
+- **Structured:** strengthen MUST and MUST NOT constraints plus ordered execution logic.
+- **Advanced:** maximize failure resistance with validation, edge cases, and anti-hallucination guards.
+
+Each tier calls `_rewrite_with_create_objective()`, which performs a full rewrite from the blueprint and original prompt.
+
+### Step 4: Use guarded fallback if needed
+
+If a rewrite returns empty output or raises an error, `_fallback_create_prompt()` builds a deterministic prompt from the blueprint.
+
+Structured and Advanced fallbacks add execution order. Advanced also adds a validation guard that tells the model to state missing evidence rather than invent details.
+
+### Step 5: Inject input variables
+
+`inject_input_variables_block()` appends runtime variables in the provider's preferred format.
+
+This ensures the final prompt names the dynamic inputs it expects without mixing those values into the static creative instructions.
+
+### Step 6: Generate prefill metadata
+
+`generate_claude_prefill_suggestion()` may return a provider-specific prefill suggestion for the Advanced variant.
+
+This is metadata, not a substitute for the Type of Output pillar.
+
+### Step 7: Run the quality gate
+
+Finally, `_refine_variants_with_quality_critique()` critiques the variants according to `quality_gate_mode` and may improve weak ones.
+
+This final pass is shared across APOST frameworks, but for CREATE it is especially useful for catching weak persona, vague constraints, and under-specified output format.
+
+## 7. Diagrams and Architectural Explanations
+
+### Diagram 1: CREATE Pipeline
+
+```mermaid
+flowchart LR
+  A["Optimization request"] --> B["Gap-answer enrichment"]
+  B --> C["CREATE blueprint parse"]
+  C -->|success| D["Three deep rewrite passes"]
+  C -->|parse failure| E["Default blueprint"]
+  E --> D
+  D -->|rewrite failure| F["Deterministic fallback"]
+  D --> G["Input variable injection"]
+  F --> G
+  G --> H["Prefill suggestion"]
+  H --> I["Quality gate"]
+  I --> J["Three prompt variants"]
 ```
 
----
+Read this diagram from left to right. The request is enriched, parsed into a blueprint, rewritten into three tiers, repaired by fallback if needed, augmented with input variables and prefill metadata, then reviewed by the quality gate.
 
-## 6. The CREATE Blueprint
+The practical lesson is that CREATE uses LLMs for semantic interpretation, but it also has deterministic safety rails when those LLM steps fail.
 
-Before rewriting, the optimizer extracts an intermediate representation (the blueprint) that maps the raw text into the six pillars plus two critical safety fields.
+### Diagram 2: Six-Pillar Separation
 
-### Blueprint Fields
+```mermaid
+flowchart TD
+  A["CREATE blueprint"] --> B["Character: voice and persona"]
+  A --> C["Request: one bounded task"]
+  A --> D["Examples: reference patterns"]
+  A --> E["Adjustments: required changes and rules"]
+  A --> F["Type of Output: format contract"]
+  A --> G["Extras: edge cases and safety notes"]
+```
 
-| Field | Pillar | Purpose |
+Each block is one CREATE pillar. Character controls voice. Request controls the job. Examples show patterns. Adjustments hold rules. Type of Output defines the format. Extras cover edge cases.
+
+The practical lesson is that every creative prompt failure usually maps to one pillar being absent, vague, or mixed with another pillar.
+
+### Diagram 3: Tier Escalation
+
+```mermaid
+flowchart TD
+  A["Conservative"] --> B["Clear six-pillar structure"]
+  B --> C["Structured"]
+  C --> D["MUST / MUST NOT rules and execution order"]
+  D --> E["Advanced"]
+  E --> F["Validation guards and abstention behavior"]
+```
+
+This diagram shows how the variants escalate. Conservative clarifies. Structured makes constraints more operational. Advanced adds stronger validation and failure handling.
+
+The practical lesson is to choose the lightest tier that gives the needed reliability.
+
+## 8. Optimization Tiers / Variants / Modes
+
+### Conservative
+
+**Purpose:** Improve clarity while preserving the six CREATE pillars.
+
+**Cost:** Lowest token cost.
+
+**Best use:** Creative prompts that are already mostly correct but need cleaner structure.
+
+**Trade-off:** It may not be strict enough for downstream parsers or regulated content.
+
+### Structured
+
+**Purpose:** Make constraints and execution order more explicit.
+
+**Cost:** Moderate token cost.
+
+**Best use:** Production creative workflows where tone matters but behavior must stay stable.
+
+**Trade-off:** Less freeform than Conservative, but much easier to audit.
+
+### Advanced
+
+**Purpose:** Add strict validation, edge-case handling, and anti-hallucination behavior.
+
+**Cost:** Highest token cost.
+
+**Best use:** High-stakes copy, user-facing agents, or prompts where unsupported claims and broken formats are costly.
+
+**Trade-off:** More protective, but can feel heavier than needed for simple creative drafting.
+
+### Quality Gate Modes
+
+| Mode | What happens | Good fit |
 |---|---|---|
-| `character` | Character | The persona to adopt. |
-| `request` | Request | The primary objective. |
-| `examples` | Examples | References or few-shot templates. |
-| `adjustments` | Adjustments | Rules that must be followed. |
-| `type_of_output` | Output | Schema, format, and structure. |
-| `extras` | Extras | Edge-case behavior and context scope. |
-| `forbidden_behaviors` | (Safety) | Explicit MUST NOT actions derived from implied bounds. |
-| `verification_checks` | (Validation) | Conditions to check before emitting the final text. |
+| `full` | Critique and conditional enhancement for all variants | Production release |
+| `sample_one_variant` | Full quality pass for one variant | Cost-sensitive review |
+| `critique_only` | Scores without enhancing | Auditing and benchmark comparisons |
+| `off` | Skips the judge pass | Fast local iteration |
 
-> **Why extract `forbidden_behaviors` separately?** Many users write rules like "Ensure the email is polite." The LLM parser converts this implicit boundary into a formal forbidden behavior: "MUST NOT use confrontational language." This gives the rewrite passes stronger guardrails to work with.
+## 9. Implementation and Production Considerations
 
----
+The core implementation is `backend/app/services/optimization/frameworks/create_optimizer.py`. The blueprint parse prompt starts around line 42, the rewrite prompt around line 64, `CreateOptimizer` around line 89, fallback logic around line 189, and the main `generate_variants()` workflow around line 233.
 
-## 7. The Three Optimization Tiers
+### Routing
 
-Like all APOST frameworks, CREATE generates three distinct prompt architectures from the blueprint.
+The deterministic auto-router selects `create` when `task_type == "creative"`. In plain language, APOST routes to CREATE when the task is primarily about creative generation rather than extraction, QA, reasoning, or low-level classification.
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│  THE THREE TIERS                                             │
-└──────────────────────────────────────────────────────────────┘
+### Configuration
 
-  CONSERVATIVE ─────────────────────────────────────────────────
-  
-  What it does:
-  • Reorganizes the prompt into the 6 pillars explicitly.
-  • Cleans vague language while preserving exact original intent.
-  
-  Best for: Prompts that are mostly correct but need to be 
-  cleaner and easier for humans to read and maintain.
-  
-  ──────────────────────────────────────────────────────────────
+`MAX_TOKENS_COMPONENT_EXTRACTION` controls the blueprint parse budget. If this is too low, examples or constraints may be lost.
 
-  STRUCTURED ───────────────────────────────────────────────────
-  
-  What it does:
-  • All CONSERVATIVE benefits, plus:
-  • Normalizes `adjustments` into strict MUST/MUST NOT lists.
-  • Adds an explicit ordered execution choreography (e.g., "1. 
-    Review request, 2. Apply persona, 3. Validate format").
-  
-  Best for: Production systems where the output must adhere to 
-  strict business rules without losing tone.
-  
-  ──────────────────────────────────────────────────────────────
+`MAX_TOKENS_CREATE_REWRITE` controls each deep rewrite. If this is too low, a tier may truncate important sections. If it is too high, the model may produce bloated prompts.
 
-  ADVANCED ─────────────────────────────────────────────────────
-  
-  What it does:
-  • All STRUCTURED benefits, plus:
-  • Injects strict failure-resistant validation guards.
-  • Explicitly advises the model to abstain rather than hallucinate 
-    if required evidence is missing.
-  • Generates a Claude prefill suggestion (if Anthropic).
-  
-  Best for: High-stakes applications where format fidelity and 
-  truthfulness are non-negotiable.
-  
-  ──────────────────────────────────────────────────────────────
-```
+`quality_gate_mode` controls final critique and enhancement.
 
----
+### Provider behavior
 
-## 8. The Quality Gate
+CREATE itself is provider-neutral. It uses shared helpers for input-variable formatting and Claude prefill suggestions. The core six-pillar structure remains the same across providers.
 
-Because CREATE prompts are often used for text generation tasks that require stylistic finesse, the shared quality gate evaluates specific creative and structural metrics:
+### Production trade-offs
 
-- Is the persona distinct and unambiguous?
-- Are the constraints (MUST/MUST NOT) structurally separated from the stylistic instructions?
-- Is the output format rigid enough to parse programmatically?
-- (Advanced) Are the verification checks executable by the model?
+CREATE is heavier than KERNEL because it performs blueprint parsing plus three rewrite passes. That extra cost buys clearer persona, better separation between style and rules, stronger output contracts, and better fallback behavior.
 
-If `quality_gate_mode` is set to `full` or `sample_one_variant`, the internal judge will enhance any variant that fails to meet these criteria.
+For internal drafting, Conservative may be enough. For user-facing production flows, Structured is usually the practical default. Advanced is best when factual restraint, format fidelity, and edge-case behavior matter more than brevity.
 
----
+## 10. Common Failure Modes and Diagnostics
 
-## 9. Implementation Architecture
+| Symptom | Likely cause | Where to inspect | Correction |
+|---|---|---|---|
+| Persona is weak | `character` was vague or lost during parse | CREATE blueprint and Conservative variant | Strengthen Character or use Structured |
+| Example content leaks into output | Examples were not framed as references | `examples` and `extras` | Clarify what the examples demonstrate |
+| Rules are ignored | Adjustments were phrased as soft preferences | `adjustments` and `forbidden_behaviors` | Convert rules to MUST or MUST NOT language |
+| Output format drifts | Type of Output is underspecified | `type_of_output` and quality gate result | Add schema or exact response structure |
+| Advanced feels too rigid | Validation guards are heavier than needed | Advanced prompt | Use Structured or Conservative |
+| All tiers look similar | Rewrite objectives are not producing enough tier differentiation | `objectives` in `generate_variants()` | Strengthen tier objectives |
+| Fallback output appears | Parse or rewrite model failed | logs around `_parse_create_blueprint()` or `_rewrite_with_create_objective()` | Inspect provider errors and malformed outputs |
 
-### Codebase Map
+The fastest diagnostic approach is to map the failure to a pillar. Voice problems point to Character. Scope problems point to Request. Copying problems point to Examples. Rule failures point to Adjustments or forbidden behaviors. Parser failures point to Type of Output.
 
-```
-┌────────────────────────────────────────────────────────────────┐
-│  CODEBASE INTEGRATION                                          │
-└────────────────────────────────────────────────────────────────┘
+## 11. When to Use It and When Not To
 
-  execute_optimization_request()
-        │
-        ├── framework_selector.py
-        │   → selects create when:
-        │     task_type == "creative"
-        │     OR techniques include few_shot, persona_design
-        │
-        ▼
-  OptimizerFactory.get_optimizer("create")
-        │
-        ▼
-  create_optimizer.py  ◄─── Core logic lives here
-  CreateOptimizer
-        │
-        ├── _parse_create_blueprint()
-        │
-        ├── _rewrite_with_create_objective()
-        │
-        ├── _fallback_create_prompt() (deterministic string logic)
-        │
-        └── _refine_variants_with_quality_critique()
-```
+### Use CREATE when
 
-### Fallback Guarantee
-If the LLM rewrite fails, `_fallback_create_prompt()` explicitly serializes the parsed blueprint into a template:
-```
-CHARACTER: {character}
-REQUEST: {request}
-EXAMPLES:
-- {example}
-...
-```
-This guarantees that APOST will never throw an API error due to model output failure.
+- The task is creative, persuasive, editorial, or brand-sensitive.
+- Persona and tone matter.
+- Examples are part of the prompt.
+- The output must be expressive but still structured.
+- Non-technical reviewers need a readable prompt shape.
 
----
+### Avoid CREATE when
 
-## 10. Configuration and Tuning
+- The task is simple classification, routing, or extraction.
+- The main risk is prompt injection or multi-document context confusion.
+- The prompt is severely underspecified and needs TCRTE first.
+- The task requires complex reasoning demonstrations rather than creative direction.
 
-### Parameter Reference
+### Trade-offs versus other frameworks
 
-| Parameter | Location | Tuning Advice |
-|---|---|---|
-| `MAX_TOKENS_COMPONENT_EXTRACTION` | `optimizer_configuration.py` | Lower if the parsed JSON incorporates too much raw text instead of summarizing constraints. |
-| `MAX_TOKENS_CREATE_REWRITE` | `optimizer_configuration.py` | Turn down if the rewrite starts hallucinating instructions. Turn up if the Examples section is truncated. |
-| `quality_gate_mode` | `OptimizationRequest` | Set to `sample_one_variant` for a balance of cost and high-quality outputs. |
+Compared with KERNEL, CREATE is richer for persona and creative control but more verbose. Compared with XML Structured Bounding, CREATE is less focused on isolating untrusted data and more focused on organizing creative intent. Compared with CoT Ensemble, CREATE does not retrieve examples or create reasoning paths; it structures examples already present in the prompt.
 
----
+## 12. Research-Based Insights
 
-## 11. When to Use CREATE (and When Not To)
+CREATE is an APOST framework, not a public research acronym. Its design is grounded in established findings and provider guidance about examples, role prompting, structured instructions, and output formatting.
 
-### CREATE Is a Strong Default For:
+OpenAI's prompting guide emphasizes managing reusable prompts, variables, tone or role guidance, concise examples, and eval-based iteration. This supports CREATE's separation of persona, examples, variables, and output format into reviewable prompt components. Source: [OpenAI Prompting](https://platform.openai.com/docs/guides/prompting).
 
-```
-✅  Copywriting, email generation, and creative drafting
-✅  Tasks requiring a specific persona, tone, or perspective
-✅  Prompts that rely heavily on few-shot examples
-✅  User-facing chat agent system prompts
-```
+Anthropic's prompting best practices state that examples are one of the most reliable ways to steer output format, tone, and structure; they also recommend descriptive tags for complex prompts and assigning a role in the system prompt. This directly supports CREATE's Examples and Character pillars. Source: [Anthropic Claude prompting best practices](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/claude-prompting-best-practices).
 
-### Consider Alternatives When:
+Brown et al.'s "Language Models are Few-Shot Learners" showed that examples in context can strongly influence model behavior without parameter updates. CREATE does not implement retrieval, but its Examples pillar preserves and clarifies demonstrations already present in the prompt. Source: [Language Models are Few-Shot Learners](https://arxiv.org/abs/2005.14165).
 
-```
-⚠️  The task is pure classification/extraction → KERNEL has lower 
-    overhead and is less chatty.
-⚠️  The prompt contains large multi-document contexts with high 
-    injection risk → XML Structured Bounding offers superior 
-    context isolation.
-⚠️  The prompt requires complex multi-hop reasoning → CoT 
-    Ensemble or Reasoning Aware provide better logical scaffolding.
-```
+Mishra et al.'s Natural Instructions work studies task generalization from human-written task instructions and examples. Its results support the larger principle behind CREATE: task boundaries and examples help models understand what behavior is expected. Source: [Cross-Task Generalization via Natural Language Crowdsourcing Instructions](https://aclanthology.org/2022.acl-long.244/).
 
----
+The honest takeaway is narrow: CREATE does not make creativity magically safe. It improves reliability by separating persona, request, examples, constraints, output format, and edge cases into explicit reviewable parts.
 
-## 12. Diagnosing Common Failures
+## 13. Final Synthesis
 
-| Symptom | Most Likely Cause | Where to Investigate |
-|---|---|---|
-| Persona isn't adopted | Missing from `character` parsing | `_parse_create_blueprint()`, raw prompt |
-| Examples cause hallucination | Model copying content of examples rather than style | Add constraints to `extras` / `forbidden_behaviors` |
-| Output format fails | `type_of_output` insufficiently explicit | Ensure quality gate is enabled to tighten schema |
-| API 502 / Empty variants | Parse or rewrite LLMs returning invalid responses | Fallback logic triggering; check logs for model API errors |
+CREATE is APOST's framework for prompts that need both creative expression and production reliability.
 
----
+The core workflow is:
 
-## 13. Performance Playbook
+1. Enrich the raw prompt with gap-interview answers.
+2. Parse a CREATE blueprint with six pillars plus safety and verification fields.
+3. Generate Conservative, Structured, and Advanced rewrites from that blueprint.
+4. Use deterministic fallback if parsing or rewriting fails.
+5. Inject runtime variables and provider-specific metadata.
+6. Run the shared quality gate.
 
-**Tip 1: Make examples work for you, not against you.**
-If your request contains examples, the CREATE parse will capture them. Ensure the original examples are high-quality, as the deeper rewrites will anchor heavily onto them to extrapolate the `Type of Output`.
+| Need | CREATE answer |
+|---|---|
+| Control voice | Define Character |
+| Keep task focused | Define Request |
+| Guide style or pattern | Add Examples |
+| Enforce rules | Use Adjustments and forbidden behaviors |
+| Preserve parseability | Define Type of Output |
+| Handle edge cases | Use Extras and verification checks |
+| Minimize disruption | Choose Conservative |
+| Production reliability | Choose Structured or Advanced |
 
-**Tip 2: Use CREATE for Human-in-the-Loop workflows.**
-Because CREATE's structure is extremely readable (compared to deeply nested XML or dense CoT trajectories), it is the best framework to choose if non-technical domain experts need to review and tweak the output variants manually after generation.
-
----
-
-## 14. Future Directions
-
-1. **Example Retrieval:** Integrate kNN semantic retrieval into the `Examples` pillar. Rather than hardcoding examples, the optimized prompt would include a placeholder that a runtime RAG system fills with the nearest-neighbor examples.
-2. **Persona Consistency Linting:** Add deterministic validation checks ensuring that the rules established in `Character` are not directly violated by the `Adjustments` (e.g., "Speak like an aggressive pirate" vs. "MUST use corporate business English").
-3. **Tone Calipers:** Generate variants not just by structural rigidity (the standard 3 tiers), but by tone variability (e.g., formal variant, casual variant, persuasive variant) while keeping constraints static.
-
----
-
-## 15. References
-
-1. **Brown, T., et al. (2020).** "Language Models are Few-Shot Learners." *NeurIPS 2020.* — Foundational paper for the necessity of the `Examples` pillar.
-2. **APOST Internal Documentation:** `APOST_v4_Documentation.md` and `backend/app/services/optimization/frameworks/OPTIMIZERS.md`.
-3. **Mishra, S., et al. (2022).** "Cross-Task Generalization via Natural Language Crowdsourcing Instructions." *ACL 2022.* — Demonstrates that explicit task boundaries (like separating persona from instruction) reduce error.
-
----
-
-*CREATE is part of the APOST prompt optimization suite. For tasks where creative persona is unnecessary, consider the KERNEL framework. For framework selection guidance, see the auto-router documentation in `framework_selector.py`.*
+The central idea is simple: CREATE gives creative prompts a spine. It lets the model sound human, specific, and expressive while still giving engineers clear places to inspect, tune, and enforce behavior.
