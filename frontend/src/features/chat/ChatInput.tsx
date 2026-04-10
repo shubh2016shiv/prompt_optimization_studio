@@ -38,7 +38,7 @@ export function ChatInput() {
 
   return (
     <div 
-      className="p-3 border-t space-y-2"
+      className="p-3 border-t space-y-2 shrink-0"
       style={{ borderColor: 'var(--border)' }}
     >
       <div className="flex gap-2 items-end">
