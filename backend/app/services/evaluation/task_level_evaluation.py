@@ -12,23 +12,24 @@ How this module fits with the rest of the backend:
   - Response model target:
       app.models.responses.PromptVariant.task_evaluation
   - Runtime caller:
-      app.api.routes.optimization.optimize_prompt
-  - Shared LLM transport:
-      app.services.llm_client.LLMClient
+      app.services.optimization.optimization_pipeline.execute_optimization_request
 
 Evaluation strategy:
   1. Deterministic checks first (exact / normalized / structured similarity).
-  2. Rubric-based LLM judging for ambiguous cases.
+  2. Rubric-based LLM judging for ambiguous cases (with transient retry).
   3. Pairwise tie-break only when top variants are very close.
+
+Concurrency model:
+  - Variants are evaluated sequentially to keep total provider pressure bounded.
+  - Cases inside one variant are evaluated concurrently with a semaphore limit
+    from centralized settings (`task_evaluation_max_concurrency`).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-import json
-import re
+import asyncio
 from statistics import mean
-from typing import Any, Awaitable, Callable, Literal
+from typing import Literal
 
 import structlog
 
@@ -40,389 +41,18 @@ from app.models.responses import (
     TaskEvaluationCaseResult,
     TaskEvaluationResult,
 )
-from app.services.json_extractor import JSONExtractionError, extract_json_from_llm_response
+from app.services.evaluation.task_level import (
+    CancellationCheck,
+    DeterministicCaseScore,
+    DeterministicTaskScorer,
+    PairwiseTieBreakerJudge,
+    RubricCaseScore,
+    RubricTaskJudge,
+    TaskEvaluationRetryPolicy,
+)
 from app.services.llm_client import LLMClient
 
 logger = structlog.get_logger(__name__)
-CancellationCheck = Callable[[], Awaitable[None]]
-
-
-@dataclass
-class DeterministicCaseScore:
-    """
-    Internal representation of a deterministic case scoring result.
-
-    Association:
-      Produced by DeterministicTaskScorer and consumed by
-      TaskLevelEvaluationService when deciding whether rubric judging is needed.
-    """
-
-    score: int
-    should_use_rubric: bool
-    failure_reason: str | None
-
-
-@dataclass
-class RubricCaseScore:
-    """
-    Internal representation of a rubric-judge case score.
-
-    Association:
-      Produced by RubricTaskJudge and transformed into TaskEvaluationCaseResult.
-    """
-
-    score: int
-    failure_reason: str | None
-
-
-class DeterministicTaskScorer:
-    """
-    Fast deterministic evaluator for objective task checks.
-
-    Association:
-      Called by TaskLevelEvaluationService before any rubric judging.
-      If deterministic evidence is strong, this scorer avoids extra judge calls.
-    """
-
-    def score_generated_output(
-        self,
-        generated_output_text: str,
-        expected_output_reference: Any,
-    ) -> DeterministicCaseScore:
-        """
-        Score one model output against an expected reference deterministically.
-
-        Rules:
-          - Structured expected outputs (dict/list) use structural similarity.
-          - Textual expected outputs use exact/normalized/token-overlap checks.
-          - Ambiguous textual matches request rubric judging.
-        """
-        if isinstance(expected_output_reference, (dict, list)):
-            return self._score_structured_output(
-                generated_output_text=generated_output_text,
-                expected_output_reference=expected_output_reference,
-            )
-
-        expected_text = str(expected_output_reference).strip()
-        actual_text = generated_output_text.strip()
-        if actual_text == expected_text:
-            return DeterministicCaseScore(
-                score=100,
-                should_use_rubric=False,
-                failure_reason=None,
-            )
-
-        normalized_expected_text = self._normalize_text(expected_text)
-        normalized_actual_text = self._normalize_text(actual_text)
-        if normalized_actual_text == normalized_expected_text:
-            return DeterministicCaseScore(
-                score=95,
-                should_use_rubric=False,
-                failure_reason=None,
-            )
-
-        token_overlap_ratio = self._calculate_token_overlap_ratio(
-            normalized_expected_text=normalized_expected_text,
-            normalized_actual_text=normalized_actual_text,
-        )
-        deterministic_score = int(round(token_overlap_ratio * 100))
-        if token_overlap_ratio >= 0.9:
-            return DeterministicCaseScore(
-                score=max(85, deterministic_score),
-                should_use_rubric=False,
-                failure_reason=None,
-            )
-
-        if token_overlap_ratio >= 0.45:
-            return DeterministicCaseScore(
-                score=max(40, deterministic_score),
-                should_use_rubric=True,
-                failure_reason=None,
-            )
-
-        return DeterministicCaseScore(
-            score=max(5, deterministic_score),
-            should_use_rubric=False,
-            failure_reason="semantic_mismatch",
-        )
-
-    def _score_structured_output(
-        self,
-        generated_output_text: str,
-        expected_output_reference: dict[str, Any] | list[Any],
-    ) -> DeterministicCaseScore:
-        """
-        Score structured outputs with recursive structural similarity.
-
-        Association:
-          Used for extraction/classification/format-constrained tasks where
-          deterministic checks are the most trustworthy evaluator.
-        """
-        parsed_output_value = self._extract_structured_value(generated_output_text)
-        if parsed_output_value is None:
-            return DeterministicCaseScore(
-                score=0,
-                should_use_rubric=False,
-                failure_reason="invalid_structured_output",
-            )
-
-        structural_similarity = self._calculate_structural_similarity(
-            expected_value=expected_output_reference,
-            actual_value=parsed_output_value,
-        )
-        structured_score = int(round(structural_similarity * 100))
-        if structural_similarity >= 0.99:
-            return DeterministicCaseScore(
-                score=100,
-                should_use_rubric=False,
-                failure_reason=None,
-            )
-
-        failure_reason = None
-        if structured_score < get_settings().task_evaluation_case_pass_threshold:
-            failure_reason = "structured_value_mismatch"
-
-        return DeterministicCaseScore(
-            score=structured_score,
-            should_use_rubric=False,
-            failure_reason=failure_reason,
-        )
-
-    def _extract_structured_value(self, generated_output_text: str) -> Any | None:
-        """
-        Parse JSON-like content from model output.
-
-        Association:
-          Keeps deterministic scoring robust when model output is wrapped in
-          markdown code-fences or contains extra leading text.
-        """
-        trimmed_output = generated_output_text.strip()
-        try:
-            return json.loads(trimmed_output)
-        except json.JSONDecodeError:
-            pass
-
-        try:
-            extracted_json_dictionary = extract_json_from_llm_response(trimmed_output)
-            return extracted_json_dictionary
-        except JSONExtractionError:
-            pass
-
-        json_array_match = re.search(r"\[[\s\S]*\]", trimmed_output)
-        if json_array_match:
-            try:
-                return json.loads(json_array_match.group())
-            except json.JSONDecodeError:
-                return None
-        return None
-
-    def _calculate_structural_similarity(self, expected_value: Any, actual_value: Any) -> float:
-        """
-        Recursively compute structural similarity in range [0.0, 1.0].
-
-        Association:
-          Shared by structured deterministic checks to produce transparent,
-          explainable partial-credit scores.
-        """
-        if isinstance(expected_value, dict):
-            if not isinstance(actual_value, dict):
-                return 0.0
-            expected_keys = list(expected_value.keys())
-            if not expected_keys:
-                return 1.0
-            per_key_scores = [
-                self._calculate_structural_similarity(
-                    expected_value=expected_value[key],
-                    actual_value=actual_value.get(key),
-                )
-                if key in actual_value
-                else 0.0
-                for key in expected_keys
-            ]
-            return float(mean(per_key_scores))
-
-        if isinstance(expected_value, list):
-            if not isinstance(actual_value, list):
-                return 0.0
-            if not expected_value:
-                return 1.0
-            compared_items_count = min(len(expected_value), len(actual_value))
-            if compared_items_count == 0:
-                return 0.0
-            paired_scores = [
-                self._calculate_structural_similarity(
-                    expected_value=expected_value[index],
-                    actual_value=actual_value[index],
-                )
-                for index in range(compared_items_count)
-            ]
-            # Penalize missing expected items.
-            coverage_penalty = compared_items_count / len(expected_value)
-            return float(mean(paired_scores) * coverage_penalty)
-
-        if expected_value is None and actual_value is None:
-            return 1.0
-        return 1.0 if str(expected_value).strip() == str(actual_value).strip() else 0.0
-
-    def _normalize_text(self, text_value: str) -> str:
-        """
-        Normalize text for deterministic comparisons.
-
-        Association:
-          Used by exact/near-exact text checks before escalating to rubric judge.
-        """
-        lowercase_text = text_value.lower()
-        collapsed_whitespace_text = re.sub(r"\s+", " ", lowercase_text).strip()
-        return re.sub(r"[^\w\s]", "", collapsed_whitespace_text)
-
-    def _calculate_token_overlap_ratio(
-        self,
-        normalized_expected_text: str,
-        normalized_actual_text: str,
-    ) -> float:
-        """
-        Compute token-overlap ratio between expected and actual normalized text.
-
-        Association:
-          Provides a deterministic approximation for fuzzy text similarity when
-          exact matching is too strict.
-        """
-        expected_tokens = set(normalized_expected_text.split())
-        actual_tokens = set(normalized_actual_text.split())
-        if not expected_tokens:
-            return 0.0
-        matched_tokens = expected_tokens.intersection(actual_tokens)
-        return len(matched_tokens) / len(expected_tokens)
-
-
-class RubricTaskJudge:
-    """
-    LLM-powered rubric judge for ambiguous or semantic task cases.
-
-    Association:
-      Invoked by TaskLevelEvaluationService only when deterministic scoring
-      marks a case as uncertain (`should_use_rubric=True`).
-    """
-
-    async def score_case_with_rubric(
-        self,
-        llm_client: LLMClient,
-        provider: str,
-        model_id: str,
-        case_input_text: str,
-        expected_output_reference: Any,
-        generated_output_text: str,
-    ) -> RubricCaseScore:
-        """
-        Ask the LLM to judge one case with a strict JSON rubric response.
-
-        Association:
-          Uses app.services.llm_client.LLMClient so route-level usage counters
-          and tracing remain centralized and consistent.
-        """
-        settings = get_settings()
-        rubric_prompt = (
-            "Evaluate the model output against the expected output for the task input.\n"
-            "Score from 0 to 100.\n"
-            "Return ONLY valid JSON with keys: score, failure_reason.\n\n"
-            f"<task_input>\n{case_input_text}\n</task_input>\n\n"
-            f"<expected_output>\n{json.dumps(expected_output_reference, ensure_ascii=True)}\n</expected_output>\n\n"
-            f"<generated_output>\n{generated_output_text}\n</generated_output>\n"
-        )
-        rubric_system_prompt = (
-            "You are a strict task evaluator. "
-            "Do not reward style when correctness is weak. "
-            "Use score 70+ only when the task is materially satisfied."
-        )
-        try:
-            rubric_response_text = await llm_client.call(
-                provider=provider,
-                prompt=rubric_prompt,
-                max_tokens=settings.max_tokens_task_evaluation_judging,
-                model=model_id,
-                system=rubric_system_prompt,
-                temperature=0.0,
-            )
-            rubric_payload = extract_json_from_llm_response(rubric_response_text)
-            raw_score_value = rubric_payload.get("score", 0)
-            normalized_score = int(max(0, min(100, int(raw_score_value))))
-            failure_reason = rubric_payload.get("failure_reason")
-            if isinstance(failure_reason, str) and failure_reason.strip():
-                normalized_failure_reason = failure_reason.strip()
-            else:
-                normalized_failure_reason = None
-            return RubricCaseScore(
-                score=normalized_score,
-                failure_reason=normalized_failure_reason,
-            )
-        except Exception as rubric_error:
-            logger.warning(
-                "optimize.task_evaluation.rubric_judge_failed",
-                error=str(rubric_error),
-            )
-            return RubricCaseScore(
-                score=0,
-                failure_reason="rubric_judge_unavailable",
-            )
-
-
-class PairwiseTieBreakerJudge:
-    """
-    Pairwise tie-break judge used only for close top-variant scores.
-
-    Association:
-      Called by TaskLevelEvaluationService after per-variant aggregate scores
-      are computed. This avoids pairwise cost for clearly-separated variants.
-    """
-
-    async def compare_outputs_for_case(
-        self,
-        llm_client: LLMClient,
-        provider: str,
-        model_id: str,
-        case_input_text: str,
-        expected_output_reference: Any,
-        candidate_a_output_text: str,
-        candidate_b_output_text: str,
-    ) -> Literal["A", "B", "TIE"]:
-        """
-        Determine which candidate output better satisfies one evaluation case.
-
-        Association:
-          Used strictly for tie-breaking and never as the default scorer.
-        """
-        settings = get_settings()
-        pairwise_prompt = (
-            "Compare candidate A and candidate B against the expected output.\n"
-            "Return ONLY valid JSON: {\"winner\": \"A|B|TIE\"}.\n\n"
-            f"<task_input>\n{case_input_text}\n</task_input>\n\n"
-            f"<expected_output>\n{json.dumps(expected_output_reference, ensure_ascii=True)}\n</expected_output>\n\n"
-            f"<candidate_a>\n{candidate_a_output_text}\n</candidate_a>\n\n"
-            f"<candidate_b>\n{candidate_b_output_text}\n</candidate_b>\n"
-        )
-        pairwise_system_prompt = (
-            "You are a strict evaluator. "
-            "Prefer factual correctness and constraint adherence over writing style."
-        )
-        try:
-            pairwise_response_text = await llm_client.call(
-                provider=provider,
-                prompt=pairwise_prompt,
-                max_tokens=settings.max_tokens_task_evaluation_judging,
-                model=model_id,
-                system=pairwise_system_prompt,
-                temperature=0.0,
-            )
-            pairwise_payload = extract_json_from_llm_response(pairwise_response_text)
-            winner_value = str(pairwise_payload.get("winner", "TIE")).upper()
-            if winner_value in ("A", "B"):
-                return winner_value
-        except Exception as pairwise_error:
-            logger.warning(
-                "optimize.task_evaluation.pairwise_judge_failed",
-                error=str(pairwise_error),
-            )
-        return "TIE"
 
 
 class TaskLevelEvaluationService:
@@ -430,15 +60,19 @@ class TaskLevelEvaluationService:
     Orchestrates per-variant empirical evaluation over `evaluation_dataset`.
 
     Association:
-      Called by optimize route after variant generation and quality gate.
-      Mutates each PromptVariant by attaching `task_evaluation`.
+      Called by the optimization pipeline after variant generation and quality
+      gate completion. Mutates each PromptVariant by attaching `task_evaluation`.
     """
 
     def __init__(self) -> None:
         self._settings = get_settings()
-        self._deterministic_task_scorer = DeterministicTaskScorer()
-        self._rubric_task_judge = RubricTaskJudge()
-        self._pairwise_tie_breaker_judge = PairwiseTieBreakerJudge()
+        self._retry_policy = TaskEvaluationRetryPolicy(self._settings)
+        self._deterministic_task_scorer = DeterministicTaskScorer(self._settings)
+        self._rubric_task_judge = RubricTaskJudge(
+            settings=self._settings,
+            retry_policy=self._retry_policy,
+        )
+        self._pairwise_tie_breaker_judge = PairwiseTieBreakerJudge(settings=self._settings)
 
     async def evaluate_response_variants(
         self,
@@ -450,8 +84,8 @@ class TaskLevelEvaluationService:
         Evaluate all generated variants over the request `evaluation_dataset`.
 
         Association:
-          This is the primary API called by app.api.routes.optimization.
-          It adds task-level evidence without changing existing quality gate data.
+          This is the primary API called by optimization_pipeline.
+          It adds task-level evidence without changing quality-gate data.
         """
         evaluation_dataset_cases = optimization_request.evaluation_dataset
         if not evaluation_dataset_cases:
@@ -461,6 +95,7 @@ class TaskLevelEvaluationService:
             "optimize.task_evaluation.started",
             dataset_cases=len(evaluation_dataset_cases),
             variants=len(optimization_response.variants),
+            per_variant_max_concurrency=self._settings.task_evaluation_max_concurrency,
         )
 
         case_outputs_by_variant_id: dict[int, list[str]] = {}
@@ -468,6 +103,7 @@ class TaskLevelEvaluationService:
             for prompt_variant in optimization_response.variants:
                 if cancellation_check is not None:
                     await cancellation_check()
+
                 variant_case_results, generated_case_outputs = await self._evaluate_single_variant(
                     llm_client=llm_client,
                     optimization_request=optimization_request,
@@ -493,6 +129,7 @@ class TaskLevelEvaluationService:
 
     async def _evaluate_single_variant(
         self,
+        *,
         llm_client: LLMClient,
         optimization_request: OptimizationRequest,
         prompt_variant: PromptVariant,
@@ -500,28 +137,81 @@ class TaskLevelEvaluationService:
         cancellation_check: CancellationCheck | None = None,
     ) -> tuple[list[TaskEvaluationCaseResult], list[str]]:
         """
-        Evaluate one prompt variant across all dataset cases.
+        Evaluate one variant across all dataset cases with bounded concurrency.
+
+        Educational note:
+          We use a semaphore to avoid unbounded parallel calls. This speeds up
+          evaluation materially while still protecting provider limits.
+        """
+        max_concurrency = max(1, self._settings.task_evaluation_max_concurrency)
+        case_evaluation_semaphore = asyncio.Semaphore(max_concurrency)
+
+        case_tasks = [
+            asyncio.create_task(
+                self._evaluate_single_case_for_variant(
+                    llm_client=llm_client,
+                    optimization_request=optimization_request,
+                    prompt_variant=prompt_variant,
+                    evaluation_case=evaluation_case,
+                    case_index=case_index,
+                    case_evaluation_semaphore=case_evaluation_semaphore,
+                    cancellation_check=cancellation_check,
+                )
+            )
+            for case_index, evaluation_case in enumerate(evaluation_dataset_cases, start=1)
+        ]
+
+        try:
+            indexed_case_results = await asyncio.gather(*case_tasks)
+        except Exception:
+            await self._cancel_pending_tasks(case_tasks)
+            raise
+
+        # Gather may return cases in completion order; sort for stable output.
+        sorted_case_results = sorted(indexed_case_results, key=lambda item: item[0])
+        case_results = [result for _, result, _ in sorted_case_results]
+        generated_output_texts = [generated_output for _, _, generated_output in sorted_case_results]
+        return case_results, generated_output_texts
+
+    async def _evaluate_single_case_for_variant(
+        self,
+        *,
+        llm_client: LLMClient,
+        optimization_request: OptimizationRequest,
+        prompt_variant: PromptVariant,
+        evaluation_case: EvaluationDatasetCase,
+        case_index: int,
+        case_evaluation_semaphore: asyncio.Semaphore,
+        cancellation_check: CancellationCheck | None,
+    ) -> tuple[int, TaskEvaluationCaseResult, str]:
+        """
+        Evaluate exactly one (variant, case) pair.
 
         Association:
-          Called by evaluate_response_variants for each of the 3 output variants.
-          Returns both case scores and raw generated outputs for optional tie-break.
+          This unit is intentionally tiny and isolated so concurrency behavior,
+          cancellation checkpoints, and case-level failures are easy to debug.
         """
-        case_results: list[TaskEvaluationCaseResult] = []
-        generated_output_texts: list[str] = []
-        for case_index, evaluation_case in enumerate(evaluation_dataset_cases, start=1):
+        if cancellation_check is not None:
+            await cancellation_check()
+
+        async with case_evaluation_semaphore:
             if cancellation_check is not None:
                 await cancellation_check()
+
             generated_output_text = await self._generate_variant_output_for_case(
                 llm_client=llm_client,
                 optimization_request=optimization_request,
                 prompt_variant=prompt_variant,
                 case_input_text=evaluation_case.input,
             )
-            generated_output_texts.append(generated_output_text)
+
+            if cancellation_check is not None:
+                await cancellation_check()
 
             deterministic_case_score = self._deterministic_task_scorer.score_generated_output(
                 generated_output_text=generated_output_text,
                 expected_output_reference=evaluation_case.expected_output,
+                expected_output_json_schema=evaluation_case.expected_output_json_schema,
             )
             case_score_value = deterministic_case_score.score
             scoring_method: Literal["deterministic", "rubric", "pairwise"] = "deterministic"
@@ -541,19 +231,18 @@ class TaskLevelEvaluationService:
                 failure_reason = rubric_case_score.failure_reason
 
             status_value = self._classify_case_status(case_score_value)
-            case_results.append(
-                TaskEvaluationCaseResult(
-                    case_index=case_index,
-                    score=case_score_value,
-                    status=status_value,
-                    scoring_method=scoring_method,
-                    failure_reason=failure_reason if status_value != "pass" else None,
-                )
+            case_result = TaskEvaluationCaseResult(
+                case_index=case_index,
+                score=case_score_value,
+                status=status_value,
+                scoring_method=scoring_method,
+                failure_reason=failure_reason if status_value != "pass" else None,
             )
-        return case_results, generated_output_texts
+            return case_index, case_result, generated_output_text
 
     async def _generate_variant_output_for_case(
         self,
+        *,
         llm_client: LLMClient,
         optimization_request: OptimizationRequest,
         prompt_variant: PromptVariant,
@@ -577,6 +266,7 @@ class TaskLevelEvaluationService:
 
     def _build_variant_task_evaluation_result(
         self,
+        *,
         variant_case_results: list[TaskEvaluationCaseResult],
     ) -> TaskEvaluationResult:
         """
@@ -622,6 +312,7 @@ class TaskLevelEvaluationService:
 
     async def _apply_pairwise_tie_break_if_needed(
         self,
+        *,
         llm_client: LLMClient,
         optimization_request: OptimizationRequest,
         optimization_response: OptimizationResponse,
@@ -634,7 +325,6 @@ class TaskLevelEvaluationService:
 
         Association:
           Called once after all variants have initial task scores.
-          Keeps pairwise logic isolated from baseline deterministic/rubric scoring.
         """
         evaluated_variants = [
             variant for variant in optimization_response.variants if variant.task_evaluation is not None
@@ -669,6 +359,7 @@ class TaskLevelEvaluationService:
                 await cancellation_check()
             if case_offset >= len(leading_outputs) or case_offset >= len(trailing_outputs):
                 continue
+
             pairwise_winner = await self._pairwise_tie_breaker_judge.compare_outputs_for_case(
                 llm_client=llm_client,
                 provider=optimization_request.provider,
@@ -690,7 +381,7 @@ class TaskLevelEvaluationService:
 
         winner_variant = leading_variant if leading_wins > trailing_wins else trailing_variant
         loser_variant = trailing_variant if winner_variant.id == leading_variant.id else leading_variant
-        self._apply_pairwise_adjustment(winner_variant, loser_variant)
+        self._apply_pairwise_adjustment(winner_variant=winner_variant, loser_variant=loser_variant)
         self._mark_pairwise_case_methods(
             leading_variant=leading_variant,
             trailing_variant=trailing_variant,
@@ -704,7 +395,7 @@ class TaskLevelEvaluationService:
             trailing_wins=trailing_wins,
         )
 
-    def _apply_pairwise_adjustment(self, winner_variant: PromptVariant, loser_variant: PromptVariant) -> None:
+    def _apply_pairwise_adjustment(self, *, winner_variant: PromptVariant, loser_variant: PromptVariant) -> None:
         """
         Adjust close scores after a pairwise decision.
 
@@ -727,6 +418,7 @@ class TaskLevelEvaluationService:
 
     def _mark_pairwise_case_methods(
         self,
+        *,
         leading_variant: PromptVariant,
         trailing_variant: PromptVariant,
         compared_case_indexes: list[int],
@@ -735,10 +427,11 @@ class TaskLevelEvaluationService:
         Mark case results as pairwise-touched for transparent provenance.
 
         Association:
-          Updates both tied variants so per-case metadata reflects the tie-break.
+          Updates tied variants so per-case metadata reflects tie-break usage.
         """
         if not compared_case_indexes:
             return
+
         leading_evaluation = leading_variant.task_evaluation
         trailing_evaluation = trailing_variant.task_evaluation
         if leading_evaluation is None or trailing_evaluation is None:
@@ -757,13 +450,7 @@ class TaskLevelEvaluationService:
         current_judging_mode: Literal["deterministic", "rubric", "pairwise", "mixed"],
         new_mode: Literal["deterministic", "rubric", "pairwise", "mixed"],
     ) -> Literal["deterministic", "rubric", "pairwise", "mixed"]:
-        """
-        Merge two judging mode labels into a single stable value.
-
-        Association:
-          Used when pairwise tie-break augments an existing deterministic/rubric
-          evaluation mode.
-        """
+        """Merge two judging mode labels into a single stable mode value."""
         if current_judging_mode == new_mode:
             return current_judging_mode
         if current_judging_mode == "mixed" or new_mode == "mixed":
@@ -771,16 +458,30 @@ class TaskLevelEvaluationService:
         return "mixed"
 
     def _classify_case_status(self, case_score: int) -> Literal["pass", "partial", "fail"]:
-        """
-        Map numeric score to pass/partial/fail status.
-
-        Association:
-          Shared by deterministic and rubric flows so status semantics are
-          consistent across all case results.
-        """
+        """Map numeric score to pass/partial/fail status."""
         pass_threshold = self._settings.task_evaluation_case_pass_threshold
         if case_score >= pass_threshold:
             return "pass"
         if case_score >= max(0, pass_threshold - 20):
             return "partial"
         return "fail"
+
+    async def _cancel_pending_tasks(self, case_tasks: list[asyncio.Task[object]]) -> None:
+        """
+        Cancel still-running case tasks after a gather failure.
+
+        Association:
+          Prevents task leaks and noisy "Task exception was never retrieved"
+          warnings when one case raises while others are still pending.
+        """
+        for case_task in case_tasks:
+            if not case_task.done():
+                case_task.cancel()
+        await asyncio.gather(*case_tasks, return_exceptions=True)
+
+
+__all__ = [
+    "DeterministicCaseScore",
+    "RubricCaseScore",
+    "TaskLevelEvaluationService",
+]

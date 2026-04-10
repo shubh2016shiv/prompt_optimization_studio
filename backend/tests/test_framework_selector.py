@@ -72,6 +72,63 @@ def test_select_framework_cot_ensemble():
     assert framework == "cot_ensemble"
     assert "CoT Ensemble injects" in reason
 
+
+def test_select_framework_opro_requires_evaluation_dataset_and_signal():
+    framework, reason = select_framework(
+        is_reasoning_model=False,
+        task_type="analysis",
+        complexity="complex",
+        tcrte_overall_score=82,
+        provider="openai",
+        recommended_techniques=["iterative_refinement"],
+        has_evaluation_dataset=True,
+    )
+    assert framework == "opro"
+    assert "prompt-score trajectories" in reason
+
+
+def test_select_framework_does_not_auto_select_opro_without_evaluation_dataset():
+    framework, reason = select_framework(
+        is_reasoning_model=False,
+        task_type="analysis",
+        complexity="complex",
+        tcrte_overall_score=82,
+        provider="openai",
+        recommended_techniques=["iterative_refinement"],
+        has_evaluation_dataset=False,
+    )
+    assert framework == "cot_ensemble"
+    assert "CoT Ensemble injects" in reason
+
+
+def test_select_framework_sammo_when_structure_aware_signal_present():
+    framework, reason = select_framework(
+        is_reasoning_model=False,
+        task_type="extraction",
+        complexity="expert",
+        tcrte_overall_score=78,
+        provider="openai",
+        recommended_techniques=["structure_aware"],
+        has_evaluation_dataset=False,
+    )
+    assert framework == "sammo"
+    assert "topology" in reason
+
+
+def test_select_framework_sammo_not_selected_without_signal():
+    framework, reason = select_framework(
+        is_reasoning_model=False,
+        task_type="extraction",
+        complexity="expert",
+        tcrte_overall_score=78,
+        provider="openai",
+        recommended_techniques=[],
+        has_evaluation_dataset=False,
+    )
+    assert framework == "kernel"
+    assert "Kernel framework" in reason
+
+
 def test_select_framework_tcrte_low_score():
     """
     Low TCRTE score (<50) on non-complex/non-qa tasks should select tcrte.

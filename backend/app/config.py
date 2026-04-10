@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     max_tokens_task_evaluation_generation: int = 2048
     max_tokens_task_evaluation_judging: int = 900
     max_task_evaluation_cases_per_request: int = 100
+    task_evaluation_max_concurrency: int = 10
+    task_evaluation_judge_retry_attempts: int = 3
+    task_evaluation_judge_retry_base_delay_seconds: float = 0.5
+    task_evaluation_judge_retry_max_delay_seconds: float = 4.0
+    task_evaluation_judge_retry_jitter_seconds: float = 0.25
     optimization_job_worker_processes: int = 2
 
     # OpenAI fast model for TCRTE rubric scoring and optimizer internal sub-tasks
@@ -80,6 +85,21 @@ class Settings(BaseSettings):
                 "TCRTE dimension weights must sum to 1.0; "
                 f"got {total:.4f} from task/context/role/tone/execution weights."
             )
+        return self
+
+    @model_validator(mode="after")
+    def task_evaluation_runtime_config_is_valid(self):
+        """Ensure task-level evaluation runtime knobs remain in safe ranges."""
+        if self.task_evaluation_max_concurrency < 1:
+            raise ValueError("task_evaluation_max_concurrency must be >= 1.")
+        if self.task_evaluation_judge_retry_attempts < 1:
+            raise ValueError("task_evaluation_judge_retry_attempts must be >= 1.")
+        if self.task_evaluation_judge_retry_base_delay_seconds < 0:
+            raise ValueError("task_evaluation_judge_retry_base_delay_seconds must be >= 0.")
+        if self.task_evaluation_judge_retry_max_delay_seconds < 0:
+            raise ValueError("task_evaluation_judge_retry_max_delay_seconds must be >= 0.")
+        if self.task_evaluation_judge_retry_jitter_seconds < 0:
+            raise ValueError("task_evaluation_judge_retry_jitter_seconds must be >= 0.")
         return self
 
     @property

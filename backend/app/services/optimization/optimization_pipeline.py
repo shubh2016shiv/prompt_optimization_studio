@@ -81,6 +81,19 @@ def enforce_optimization_request_budget(
             f"{total_case_count} provided, maximum is {max_allowed_cases}."
         )
 
+    if optimization_request.framework == "opro" and not evaluation_cases:
+        logger.warning(
+            "optimize.budget_check_rejected",
+            request_id=request_id,
+            framework=optimization_request.framework,
+            reason="opro_requires_evaluation_dataset",
+        )
+        raise OptimizationRequestBudgetError(
+            "OPRO requires evaluation_dataset because it optimizes from empirical "
+            "prompt-score trajectories. Provide at least one evaluation case or "
+            "choose a non-OPRO framework."
+        )
+
     logger.info(
         "optimize.budget_check_passed",
         request_id=request_id,
@@ -180,6 +193,7 @@ async def execute_optimization_request(
                 tcrte_overall_score=tcrte_overall,
                 provider=request.provider,
                 recommended_techniques=techniques,
+                has_evaluation_dataset=bool(request.evaluation_dataset),
             )
             logger.info(
                 "optimize.framework_selected",

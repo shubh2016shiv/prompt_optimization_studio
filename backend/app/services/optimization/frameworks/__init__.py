@@ -1,15 +1,20 @@
 """
-Concrete Strategy Implementations for APOST prompt optimizations.
+Concrete strategy implementations for APOST prompt optimizations.
 
-This directory contains ALL 8 framework strategy classes that implement
-the BaseOptimizerStrategy interface:
+This directory contains all 13 framework strategy classes that implement
+BaseOptimizerStrategy:
 
-  1. kernel_optimizer.py              — KERNEL (Keep simple, Explicit, Narrow, Logical order)
-  2. xml_structured_optimizer.py      — XML Structured Bounding (Anthropic-endorsed)
-  3. create_optimizer.py              — CREATE (Character, Request, Examples, Adjustments, Type, Extras)
-  4. progressive_disclosure_optimizer.py — Progressive Disclosure (3-Layer Agent Skills)
-  5. reasoning_aware_optimizer.py     — Reasoning-Aware (for o-series / extended thinking models)
-  6. cot_ensemble_optimizer.py        — CoT Ensemble / Medprompt (kNN few-shot + multi-path)
-  7. tcrte_coverage_optimizer.py      — TCRTE Coverage-First (gap-filling for underspecified prompts)
-  8. textgrad_iterative_optimizer.py  — TextGrad Iterative (evaluate→critique→rewrite loop)
+1. kernel_optimizer.py - KERNEL
+2. xml_structured_optimizer.py - XML Structured Bounding
+3. create_optimizer.py - CREATE
+4. progressive_disclosure_optimizer.py - Progressive Disclosure
+5. reasoning_aware_optimizer.py - Reasoning-Aware
+6. cot_ensemble_optimizer.py - CoT Ensemble / Medprompt
+7. tcrte_coverage_optimizer.py - TCRTE Coverage-First
+8. textgrad_iterative_optimizer.py - TextGrad Iterative
+9. overshoot_undershoot_optimizer.py - Overshoot/Undershoot
+10. core_attention_optimizer.py - CoRe Attention-Aware
+11. ral_writer_optimizer.py - RAL-Writer
+12. opro_trajectory_optimizer.py - OPRO trajectory optimization
+13. sammo_topological_optimizer.py - SAMMO structure-aware multi-objective optimization
 """

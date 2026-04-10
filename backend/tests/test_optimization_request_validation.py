@@ -57,3 +57,42 @@ def test_optimization_request_rejects_null_expected_output():
 
     with pytest.raises(ValidationError):
         OptimizationRequest.model_validate(payload)
+
+
+def test_optimization_request_accepts_valid_expected_output_json_schema():
+    """Valid JSON schema should be accepted in evaluation dataset cases."""
+    payload = _build_base_payload()
+    payload["evaluation_dataset"] = [
+        {
+            "input": "Invoice #2044, amount 1842.50",
+            "expected_output": {"invoice_number": "2044", "amount": 1842.50},
+            "expected_output_json_schema": {
+                "type": "object",
+                "properties": {
+                    "invoice_number": {"type": "string"},
+                    "amount": {"type": "number"},
+                },
+                "required": ["invoice_number", "amount"],
+                "additionalProperties": False,
+            },
+        }
+    ]
+
+    request_model = OptimizationRequest.model_validate(payload)
+    assert request_model.evaluation_dataset is not None
+    assert request_model.evaluation_dataset[0].expected_output_json_schema is not None
+
+
+def test_optimization_request_rejects_invalid_expected_output_json_schema():
+    """Malformed JSON schemas must be rejected at request validation time."""
+    payload = _build_base_payload()
+    payload["evaluation_dataset"] = [
+        {
+            "input": "Invoice #2044",
+            "expected_output": {"invoice_number": "2044"},
+            "expected_output_json_schema": {"type": "unknown_type"},
+        }
+    ]
+
+    with pytest.raises(ValidationError):
+        OptimizationRequest.model_validate(payload)

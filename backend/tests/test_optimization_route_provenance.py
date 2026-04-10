@@ -127,3 +127,27 @@ def test_optimize_route_rejects_requests_over_evaluation_budget(client):
     )
     assert response.status_code == 422
     assert "maximum is 100" in response.json()["detail"]
+
+
+def test_optimize_route_rejects_opro_without_evaluation_dataset(client):
+    response = client.post("/api/optimize", json=_base_payload("opro"))
+
+    assert response.status_code == 422
+    assert "OPRO requires evaluation_dataset" in response.json()["detail"]
+
+
+def test_optimize_route_accepts_opro_with_evaluation_dataset(client, monkeypatch):
+    from app.api.routes import optimization as opt_route
+
+    async def fake_execute(**kwargs):
+        return _build_pipeline_response(include_task_evaluation=False)
+
+    monkeypatch.setattr(opt_route, "execute_optimization_request", fake_execute)
+
+    payload = _base_payload("opro")
+    payload["evaluation_dataset"] = [
+        {"input": "case-1", "expected_output": "expected-1"}
+    ]
+    response = client.post("/api/optimize", json=payload)
+
+    assert response.status_code == 200

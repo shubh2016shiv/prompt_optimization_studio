@@ -45,6 +45,15 @@ MAX_TOKENS_TEXTGRAD_GRADIENT = 800        # For TextGrad gradient localisation p
 MAX_TOKENS_TEXTGRAD_UPDATE = 2048         # For TextGrad prompt rewrite per iteration
 MAX_TOKENS_TCRTE_DIMENSION_FILL = 1500   # For filling missing TCRTE dimensions
 MAX_TOKENS_VARIANT_SCORE_ESTIMATION = 350  # For scoring a generated variant
+MAX_TOKENS_FAILURE_MODE_ANALYSIS = 1500   # For overshoot/undershoot risk analysis
+MAX_TOKENS_CORE_CRITICALITY_ANALYSIS = 1200 # For CoRe attention risk analysis
+MAX_TOKENS_RAL_CONSTRAINT_EXTRACTION = 1000 # For RAL-Writer constraint separation
+MAX_TOKENS_OPRO_PROPOSAL = 2500       # For OPRO trajectory-based candidate proposal
+MAX_TOKENS_SAMMO_STRUCTURAL_PARSE = 1500  # For SAMMO graph parsing and mutation calls
+MAX_TOKENS_KERNEL_REWRITE = 2200      # For deep KERNEL rewrite passes
+MAX_TOKENS_XML_REWRITE = 2200         # For ontology-aware XML rewrite passes
+MAX_TOKENS_CREATE_REWRITE = 2200      # For deep CREATE rewrite passes
+MAX_TOKENS_PROGRESSIVE_REWRITE = 2200 # For deep Progressive Disclosure rewrite passes
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 3. TextGrad Iteration Configuration
@@ -53,6 +62,20 @@ MAX_TOKENS_VARIANT_SCORE_ESTIMATION = 350  # For scoring a generated variant
 TEXTGRAD_DEFAULT_ITERATION_COUNT = 3       # Number of evaluate→critique→rewrite cycles
 TEXTGRAD_EVALUATION_TEMPERATURE = 0.0      # Greedy for consistent critiques
 TEXTGRAD_UPDATE_TEMPERATURE = 0.3          # Slight creativity for rewrites
+
+# OPRO: Optimization by PROmpting. Defaults are deliberately bounded because
+# each proposed prompt is empirically evaluated against user examples.
+OPRO_DEFAULT_ITERATION_COUNT = 3
+OPRO_CANDIDATES_PER_ITERATION = 2
+OPRO_TRAJECTORY_KEEP_TOP = 20
+OPRO_EXEMPLARS_IN_META_PROMPT = 3
+OPRO_MAX_TRAINING_CASES = 12
+OPRO_PROPOSAL_TEMPERATURE = 0.8
+
+# SAMMO: Structure-Aware Multi-Objective Optimization.
+SAMMO_MIN_TCRTE_THRESHOLD = 60
+SAMMO_TOKEN_WEIGHT = 0.30
+SAMMO_TCRTE_WEIGHT = 0.70
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 4. CoRe (Context Repetition) Bounds
@@ -140,9 +163,27 @@ OPTIMIZER_CONFIG = {
     "max_tokens_textgrad_update": MAX_TOKENS_TEXTGRAD_UPDATE,
     "max_tokens_tcrte_dimension_fill": MAX_TOKENS_TCRTE_DIMENSION_FILL,
     "max_tokens_variant_score_estimation": MAX_TOKENS_VARIANT_SCORE_ESTIMATION,
+    "max_tokens_failure_mode_analysis": MAX_TOKENS_FAILURE_MODE_ANALYSIS,
+    "max_tokens_core_criticality_analysis": MAX_TOKENS_CORE_CRITICALITY_ANALYSIS,
+    "max_tokens_ral_constraint_extraction": MAX_TOKENS_RAL_CONSTRAINT_EXTRACTION,
+    "max_tokens_opro_proposal": MAX_TOKENS_OPRO_PROPOSAL,
+    "max_tokens_sammo_structural_parse": MAX_TOKENS_SAMMO_STRUCTURAL_PARSE,
+    "max_tokens_kernel_rewrite": MAX_TOKENS_KERNEL_REWRITE,
+    "max_tokens_xml_rewrite": MAX_TOKENS_XML_REWRITE,
+    "max_tokens_create_rewrite": MAX_TOKENS_CREATE_REWRITE,
+    "max_tokens_progressive_rewrite": MAX_TOKENS_PROGRESSIVE_REWRITE,
     "textgrad_default_iteration_count": TEXTGRAD_DEFAULT_ITERATION_COUNT,
     "textgrad_evaluation_temperature": TEXTGRAD_EVALUATION_TEMPERATURE,
     "textgrad_update_temperature": TEXTGRAD_UPDATE_TEMPERATURE,
+    "opro_default_iteration_count": OPRO_DEFAULT_ITERATION_COUNT,
+    "opro_candidates_per_iteration": OPRO_CANDIDATES_PER_ITERATION,
+    "opro_trajectory_keep_top": OPRO_TRAJECTORY_KEEP_TOP,
+    "opro_exemplars_in_meta_prompt": OPRO_EXEMPLARS_IN_META_PROMPT,
+    "opro_max_training_cases": OPRO_MAX_TRAINING_CASES,
+    "opro_proposal_temperature": OPRO_PROPOSAL_TEMPERATURE,
+    "sammo_min_tcrte_threshold": SAMMO_MIN_TCRTE_THRESHOLD,
+    "sammo_token_weight": SAMMO_TOKEN_WEIGHT,
+    "sammo_tcrte_weight": SAMMO_TCRTE_WEIGHT,
     "core_minimum_repetition_count": CORE_MINIMUM_REPETITION_COUNT,
     "core_maximum_repetition_count": CORE_MAXIMUM_REPETITION_COUNT,
     "prefill_suggestion_by_task_type": PREFILL_SUGGESTION_BY_TASK_TYPE,

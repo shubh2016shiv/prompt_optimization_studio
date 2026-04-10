@@ -264,6 +264,32 @@ class OptimizationRunMetadata(BaseModel):
         ge=0,
         description="Estimated total input tokens counted across calls for this optimization request.",
     )
+    opro_iterations_run: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Number of OPRO proposal/evaluation iterations completed.",
+    )
+    opro_candidates_evaluated: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Number of OPRO candidate prompts empirically evaluated.",
+    )
+    opro_training_cases_used: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Number of evaluation_dataset cases used inside the bounded OPRO loop.",
+    )
+    opro_best_score: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=100,
+        description="Best empirical task score observed during the OPRO trajectory.",
+    )
+    sammo_mutations_explored: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Number of SAMMO topological mutation candidates evaluated.",
+    )
 
 
 class OptimizationJobCreatedResponse(BaseModel):

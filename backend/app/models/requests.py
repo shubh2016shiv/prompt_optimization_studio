@@ -6,6 +6,8 @@ These define the shape of incoming request bodies with validation.
 
 from typing import Any, Optional, Literal
 
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -68,6 +70,14 @@ class EvaluationDatasetCase(BaseModel):
             "Can be plain text or structured JSON-like data."
         ),
     )
+    expected_output_json_schema: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Optional JSON Schema used for deterministic structural validation. "
+            "When provided, generated outputs must satisfy this schema to pass "
+            "deterministic structured checks."
+        ),
+    )
 
     @field_validator("expected_output")
     @classmethod
@@ -82,6 +92,28 @@ class EvaluationDatasetCase(BaseModel):
         if expected_output_value is None:
             raise ValueError("expected_output cannot be null")
         return expected_output_value
+
+    @field_validator("expected_output_json_schema")
+    @classmethod
+    def validate_expected_output_json_schema(
+        cls,
+        expected_output_json_schema: Optional[dict[str, Any]],
+    ) -> Optional[dict[str, Any]]:
+        """
+        Validate optional JSON Schema payloads at request parsing time.
+
+        Association:
+          This validator protects deterministic task-level scoring from malformed
+          schema definitions. Invalid schemas are rejected early with a clear
+          request validation error instead of failing during case execution.
+        """
+        if expected_output_json_schema is None:
+            return None
+        try:
+            Draft202012Validator.check_schema(expected_output_json_schema)
+        except SchemaError as schema_error:
+            raise ValueError(f"expected_output_json_schema is invalid: {schema_error.message}") from schema_error
+        return expected_output_json_schema
 
 
 class OptimizationRequest(BaseModel):

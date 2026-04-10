@@ -392,7 +392,9 @@ class OptimizerFactory:
 
         Args:
             framework_id: One of: kernel, xml_structured, create, progressive,
-                          reasoning_aware, cot_ensemble, tcrte, textgrad.
+                          reasoning_aware, cot_ensemble, tcrte, textgrad,
+                          overshoot_undershoot, core_attention, ral_writer,
+                          opro, sammo.
 
         Returns:
             An instance of the corresponding BaseOptimizerStrategy subclass.
@@ -409,6 +411,11 @@ class OptimizerFactory:
         from app.services.optimization.frameworks.cot_ensemble_optimizer import ChainOfThoughtEnsembleOptimizer
         from app.services.optimization.frameworks.tcrte_coverage_optimizer import TcrteCoverageOptimizer
         from app.services.optimization.frameworks.textgrad_iterative_optimizer import TextGradIterativeOptimizer
+        from app.services.optimization.frameworks.overshoot_undershoot_optimizer import OvershootUndershootOptimizer
+        from app.services.optimization.frameworks.core_attention_optimizer import CoreAttentionOptimizer
+        from app.services.optimization.frameworks.ral_writer_optimizer import RalWriterOptimizer
+        from app.services.optimization.frameworks.opro_trajectory_optimizer import OproTrajectoryOptimizer
+        from app.services.optimization.frameworks.sammo_topological_optimizer import SammoTopologicalOptimizer
 
         FRAMEWORK_REGISTRY: dict[str, type[BaseOptimizerStrategy]] = {
             "kernel": KernelOptimizer,
@@ -419,6 +426,11 @@ class OptimizerFactory:
             "cot_ensemble": ChainOfThoughtEnsembleOptimizer,
             "tcrte": TcrteCoverageOptimizer,
             "textgrad": TextGradIterativeOptimizer,
+            "overshoot_undershoot": OvershootUndershootOptimizer,
+            "core_attention": CoreAttentionOptimizer,
+            "ral_writer": RalWriterOptimizer,
+            "opro": OproTrajectoryOptimizer,
+            "sammo": SammoTopologicalOptimizer,
         }
 
         strategy_class = FRAMEWORK_REGISTRY.get(framework_id)
@@ -436,11 +448,16 @@ class OptimizerFactory:
     def list_available_framework_ids() -> list[str]:
         """Return sorted list of all registered framework IDs."""
         return [
+            "core_attention",
             "cot_ensemble",
             "create",
             "kernel",
+            "opro",
+            "overshoot_undershoot",
             "progressive",
+            "ral_writer",
             "reasoning_aware",
+            "sammo",
             "tcrte",
             "textgrad",
             "xml_structured",

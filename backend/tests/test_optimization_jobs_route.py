@@ -147,3 +147,13 @@ def test_create_optimization_job_rejects_requests_over_evaluation_budget(client)
     )
     assert response.status_code == 422
     assert "maximum is 100" in response.json()["detail"]
+
+
+def test_create_optimization_job_rejects_opro_without_evaluation_dataset(client):
+    payload = _base_payload()
+    payload["framework"] = "opro"
+
+    response = client.post("/api/optimize/jobs", json=payload)
+
+    assert response.status_code == 422
+    assert "OPRO requires evaluation_dataset" in response.json()["detail"]

@@ -1,5 +1,7 @@
 """Unit tests for task-level empirical evaluation service."""
 
+import asyncio
+
 import pytest
 
 from app.models.requests import EvaluationDatasetCase, OptimizationRequest
@@ -222,3 +224,70 @@ async def test_pairwise_tie_break_applies_small_adjustment(monkeypatch):
         case_result.scoring_method == "pairwise"
         for case_result in second_variant_evaluation.case_results
     )
+
+
+@pytest.mark.asyncio
+async def test_task_evaluation_uses_configured_case_concurrency(monkeypatch):
+    """Case-level evaluation should run concurrently up to configured semaphore limit."""
+    service = TaskLevelEvaluationService()
+    service._settings.task_evaluation_max_concurrency = 3
+
+    request = _build_request_with_dataset()
+    request.evaluation_dataset = [
+        EvaluationDatasetCase(input=f"Input {index}", expected_output=f"Output {index}")
+        for index in range(1, 7)
+    ]
+    response = _build_response_with_variants()
+    response.variants = response.variants[:1]
+
+    in_flight_calls = 0
+    max_in_flight_calls = 0
+    counter_lock = asyncio.Lock()
+
+    async def fake_generate_output(*, case_input_text, **kwargs):
+        nonlocal in_flight_calls
+        nonlocal max_in_flight_calls
+        async with counter_lock:
+            in_flight_calls += 1
+            max_in_flight_calls = max(max_in_flight_calls, in_flight_calls)
+        await asyncio.sleep(0.03)
+        async with counter_lock:
+            in_flight_calls -= 1
+        return case_input_text.replace("Input", "Output")
+
+    monkeypatch.setattr(
+        service,
+        "_generate_variant_output_for_case",
+        fake_generate_output,
+    )
+
+    await service.evaluate_response_variants(
+        optimization_request=request,
+        optimization_response=response,
+    )
+
+    assert max_in_flight_calls > 1
+    assert max_in_flight_calls <= 3
+
+
+def test_deterministic_scorer_rejects_structured_output_when_json_schema_fails():
+    """JSON schema violations should fail deterministic scoring immediately."""
+    service = TaskLevelEvaluationService()
+    deterministic_scorer = service._deterministic_task_scorer
+
+    deterministic_score = deterministic_scorer.score_generated_output(
+        generated_output_text='{"invoice_id":"INV-300","amount":"not-a-number"}',
+        expected_output_reference={"invoice_id": "INV-300", "amount": 120.0},
+        expected_output_json_schema={
+            "type": "object",
+            "properties": {
+                "invoice_id": {"type": "string"},
+                "amount": {"type": "number"},
+            },
+            "required": ["invoice_id", "amount"],
+            "additionalProperties": False,
+        },
+    )
+
+    assert deterministic_score.score == 0
+    assert deterministic_score.failure_reason == "json_schema_validation_failed"

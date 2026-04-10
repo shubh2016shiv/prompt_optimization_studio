@@ -9,6 +9,8 @@ Inputs and where they come from:
   - task_type: Declared by the client (e.g., reasoning, planning, coding, qa).
   - complexity: Estimated by gap analysis (simple, standard, complex, expert).
   - tcrte_overall_score: A 0-100 coverage score computed earlier in the pipeline.
+  - has_evaluation_dataset: Whether empirical examples are available for
+    trajectory-based optimization.
 
 What is TCRTE?
   TCRTE is APOST's structural coverage rubric for prompt quality:
@@ -31,7 +33,8 @@ Selection philosophy:
 Return:
   (framework_id, reason_string) where framework_id is one of:
   reasoning_aware, xml_structured, progressive, cot_ensemble,
-  tcrte, kernel, create, textgrad.
+  tcrte, kernel, create, textgrad, overshoot_undershoot,
+  core_attention, ral_writer, opro, sammo.
 """
 
 import logging
@@ -46,6 +49,7 @@ def select_framework(
     tcrte_overall_score: int,
     provider: str,
     recommended_techniques: list[str] | None = None,
+    has_evaluation_dataset: bool = False,
 ) -> tuple[str, str]:
     """Apply the APOST decision tree deterministically."""
     techniques = recommended_techniques or []
@@ -54,6 +58,26 @@ def select_framework(
         return (
             "reasoning_aware",
             "Reasoning model detected - built-in chain-of-thought active, external CoT injection suppressed.",
+        )
+
+    if has_evaluation_dataset and any(
+        t in techniques for t in ("iterative_refinement", "empirical_optimization")
+    ):
+        return (
+            "opro",
+            "Evaluation dataset plus empirical/iterative optimization signal detected - "
+            "OPRO selected to learn from prompt-score trajectories.",
+        )
+
+    if (
+        complexity in ("complex", "expert")
+        and task_type in ("extraction", "qa", "analysis")
+        and any(t in techniques for t in ("structure_aware", "topological_mutation", "prompt_compression"))
+    ):
+        return (
+            "sammo",
+            "Structure-aware optimization signal detected for a high-complexity task - "
+            "SAMMO selected to mutate prompt topology and balance quality vs token cost.",
         )
 
     if task_type == "qa" or any(
@@ -86,6 +110,28 @@ def select_framework(
         return (
             "tcrte",
             f"Overall TCRTE score is {tcrte_overall_score}/100 - structural gaps must be filled before stylistic refinement can be applied.",
+        )
+
+    if 50 <= tcrte_overall_score < 70 and complexity in ("standard", "expert"):
+        return (
+            "overshoot_undershoot",
+            f"Moderate TCRTE ({tcrte_overall_score}/100) with {complexity} task - "
+            "prompt has basic structure but lacks failure-mode guardrails. "
+            "Overshoot/Undershoot prevention calibrates scope and depth controls.",
+        )
+
+    if "context_repetition" in techniques or "long_context" in techniques:
+        return (
+            "core_attention",
+            "High context-loss risk detected (multi-hop/long context). "
+            "CoRe Attention-Aware framework selected to restructure for primacy/recency."
+        )
+
+    if "constraint_restatement" in techniques or task_type == "coding":
+        return (
+            "ral_writer",
+            "Heavy constraint/rule reliance detected. "
+            "RAL-Writer selected to isolate constraints and apply recency echo."
         )
 
     if task_type in ("routing", "extraction", "classification") or complexity == "simple":
