@@ -29,6 +29,10 @@ from app.services.optimization.optimizer_configuration import (
     MAX_TOKENS_CREATE_REWRITE,
     SYSTEM_PROMPT_FOR_JSON_EXTRACTION,
 )
+from app.services.optimization.prompt_registry.create import (
+    CREATE_BLUEPRINT_PARSE_PROMPT_TEMPLATE,
+    CREATE_REWRITE_PROMPT_TEMPLATE,
+)
 from app.services.optimization.shared_prompt_techniques import (
     compute_coverage_delta_description,
     generate_claude_prefill_suggestion,
@@ -39,51 +43,8 @@ from app.services.optimization.shared_prompt_techniques import (
 logger = logging.getLogger(__name__)
 
 
-_CREATE_BLUEPRINT_PARSE_PROMPT = """
-You are a CREATE framework architect.
-Extract stable CREATE anchors from the user's prompt.
-
-<raw_prompt>
-{raw_prompt}
-</raw_prompt>
-
-Return ONLY valid JSON:
-{{
-  "character": "role/persona the assistant should adopt",
-  "request": "single bounded objective",
-  "examples": ["example context or references"],
-  "adjustments": ["hard constraints and adjustments"],
-  "type_of_output": "required output format",
-  "extras": ["safety, edge-case, or reliability directives"],
-  "forbidden_behaviors": ["explicit must-not behaviors"],
-  "verification_checks": ["verifiable completion checks"]
-}}
-""".strip()
-
-
-_CREATE_REWRITE_PROMPT = """
-You are performing a CREATE rewrite.
-Return a complete rewritten system prompt, not fragments.
-
-Objective for this pass:
-{objective}
-
-CREATE blueprint:
-{blueprint_json}
-
-Original prompt:
-<raw_prompt>
-{raw_prompt}
-</raw_prompt>
-
-Rules:
-- Preserve intent while rewriting for clarity and enforceability.
-- Keep CREATE structure explicit: Character, Request, Examples, Adjustments, Type of Output, Extras.
-- Convert adjustments into executable MUST and MUST NOT rules.
-- Keep one bounded objective and avoid speculative scope expansion.
-- Include verification checks in actionable language.
-- Return only the final rewritten system prompt text.
-""".strip()
+_CREATE_BLUEPRINT_PARSE_PROMPT = CREATE_BLUEPRINT_PARSE_PROMPT_TEMPLATE
+_CREATE_REWRITE_PROMPT = CREATE_REWRITE_PROMPT_TEMPLATE
 
 
 class CreateOptimizer(BaseOptimizerStrategy):

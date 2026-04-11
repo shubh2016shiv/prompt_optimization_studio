@@ -29,6 +29,10 @@ from app.services.optimization.optimizer_configuration import (
     MAX_TOKENS_PROGRESSIVE_REWRITE,
     SYSTEM_PROMPT_FOR_JSON_EXTRACTION,
 )
+from app.services.optimization.prompt_registry.progressive import (
+    PROGRESSIVE_BLUEPRINT_PARSE_PROMPT_TEMPLATE,
+    PROGRESSIVE_REWRITE_PROMPT_TEMPLATE,
+)
 from app.services.optimization.shared_prompt_techniques import (
     apply_ral_writer_constraint_restatement,
     compute_coverage_delta_description,
@@ -40,56 +44,8 @@ from app.services.optimization.shared_prompt_techniques import (
 logger = logging.getLogger(__name__)
 
 
-_PROGRESSIVE_BLUEPRINT_PARSE_PROMPT = """
-You are a systems architect for Progressive Disclosure prompting.
-Extract layered execution anchors from the user's prompt.
-
-<raw_prompt>
-{raw_prompt}
-</raw_prompt>
-
-Return ONLY valid JSON:
-{{
-  "discovery_metadata": ["capabilities, tools, and context visibility"],
-  "activation_rules": [
-    {{
-      "trigger": "condition that activates behavior",
-      "action": "what should be executed",
-      "priority": "critical|high|medium|low"
-    }}
-  ],
-  "execution_logic": ["ordered procedural steps"],
-  "output_format": "required output schema or format",
-  "safety_bounds": ["guardrails and out-of-scope handling"],
-  "failure_modes": ["common failure modes to prevent"]
-}}
-""".strip()
-
-
-_PROGRESSIVE_REWRITE_PROMPT = """
-You are performing a Progressive Disclosure rewrite.
-Return a full rewritten system prompt, not fragments.
-
-Objective for this pass:
-{objective}
-
-Layered blueprint:
-{blueprint_json}
-
-Original prompt:
-<raw_prompt>
-{raw_prompt}
-</raw_prompt>
-
-Rules:
-- Preserve intent while rewriting for precise activation and execution behavior.
-- Keep three layers explicit: Discovery, Activation, Execution.
-- Activation rules must be condition -> action statements.
-- Execution logic must be ordered and deterministic.
-- Include safety boundaries and failure-mode prevention.
-- Keep scope narrow to the intended workflow.
-- Return only the final rewritten system prompt text.
-""".strip()
+_PROGRESSIVE_BLUEPRINT_PARSE_PROMPT = PROGRESSIVE_BLUEPRINT_PARSE_PROMPT_TEMPLATE
+_PROGRESSIVE_REWRITE_PROMPT = PROGRESSIVE_REWRITE_PROMPT_TEMPLATE
 
 
 class ProgressiveDisclosureOptimizer(BaseOptimizerStrategy):

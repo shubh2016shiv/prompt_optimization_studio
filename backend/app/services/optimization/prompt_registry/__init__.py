@@ -1,0 +1,1 @@
+"""Central prompt registry for optimization framework templates."""

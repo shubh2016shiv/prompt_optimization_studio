@@ -31,6 +31,10 @@ from app.services.optimization.optimizer_configuration import (
     MAX_TOKENS_KERNEL_REWRITE,
     SYSTEM_PROMPT_FOR_JSON_EXTRACTION,
 )
+from app.services.optimization.prompt_registry.kernel import (
+    KERNEL_COMPONENT_PARSE_PROMPT_TEMPLATE,
+    KERNEL_REWRITE_PROMPT_TEMPLATE,
+)
 from app.services.optimization.shared_prompt_techniques import (
     compute_coverage_delta_description,
     generate_claude_prefill_suggestion,
@@ -41,49 +45,8 @@ from app.services.optimization.shared_prompt_techniques import (
 logger = logging.getLogger(__name__)
 
 
-_KERNEL_COMPONENT_PARSE_PROMPT = """
-You are a KERNEL decomposition specialist.
-Extract stable optimization anchors from the prompt.
-
-<raw_prompt>
-{raw_prompt}
-</raw_prompt>
-
-Return ONLY valid JSON:
-{{
-  "task": "single bounded objective",
-  "context": "required grounding context",
-  "positive_constraints": ["must-do constraints"],
-  "negative_constraints": ["must-not constraints"],
-  "success_criteria": ["verifiable completion checks"],
-  "output_format": "required output format/schema"
-}}
-""".strip()
-
-
-_KERNEL_REWRITE_PROMPT = """
-You are performing a KERNEL rewrite.
-Rewrite the prompt end-to-end, not as labels-only rearrangement.
-
-KERNEL objective for this pass:
-{objective}
-
-KERNEL blueprint (must preserve intent):
-{blueprint_json}
-
-Original prompt:
-<raw_prompt>
-{raw_prompt}
-</raw_prompt>
-
-Rules:
-- Rewrite prose for clarity and directness.
-- Use explicit MUST and MUST NOT constraints.
-- Keep scope narrow to one bounded objective.
-- Include verifiable success criteria.
-- Keep the structure logically ordered.
-- Return only the final rewritten system prompt text.
-""".strip()
+_KERNEL_COMPONENT_PARSE_PROMPT = KERNEL_COMPONENT_PARSE_PROMPT_TEMPLATE
+_KERNEL_REWRITE_PROMPT = KERNEL_REWRITE_PROMPT_TEMPLATE
 
 
 class KernelOptimizer(BaseOptimizerStrategy):

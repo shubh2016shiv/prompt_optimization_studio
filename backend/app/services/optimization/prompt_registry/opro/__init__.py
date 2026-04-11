@@ -1,0 +1,3 @@
+from .proposal_prompt import TEMPLATE as OPRO_PROPOSAL_PROMPT_TEMPLATE
+
+__all__ = ["OPRO_PROPOSAL_PROMPT_TEMPLATE"]

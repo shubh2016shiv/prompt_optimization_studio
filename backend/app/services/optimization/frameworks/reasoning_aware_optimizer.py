@@ -46,32 +46,16 @@ from app.services.json_extractor import (
     extract_json_from_llm_response,
 )
 from app.services.optimization.base import BaseOptimizerStrategy
+from app.services.optimization.prompt_registry.reasoning_aware import (
+    REASONING_AWARE_PROMPT_TEMPLATE,
+    build_reasoning_aware_variant_1_system_prompt,
+    build_reasoning_aware_variant_2_system_prompt,
+    build_reasoning_aware_variant_3_system_prompt,
+)
 
 logger = logging.getLogger(__name__)
 
-_REASONING_AWARE_PROMPT = """
-You are an expert prompt engineer tuning a prompt specifically for an ongoing-inference reasoning model
-like OpenAI o1/o3 or Gemini Flash-Thinking.
-
-These models perform WORSE when given "how to think" instructions (e.g. "think step by step", "first analyze X").
-They need ONLY absolute declarations of boundaries and output format.
-
-Extract from the user's raw prompt and rewrite them cleanly:
-1. "absolute_task": The core objective, stated as a declarative imperative.
-2. "hard_constraints": Only the absolute rules and boundaries. STRIP OUT any advice on "how" to think.
-3. "output_format": The rigid output structure expected.
-
-<raw_prompt>
-{raw_prompt}
-</raw_prompt>
-
-Return exactly matching this JSON schema:
-{{
-  "absolute_task": "string",
-  "hard_constraints": ["strings"],
-  "output_format": "string"
-}}
-"""
+_REASONING_AWARE_PROMPT = REASONING_AWARE_PROMPT_TEMPLATE
 
 _REASONING_AWARE_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -114,35 +98,21 @@ class ReasoningAwareOptimizer(BaseOptimizerStrategy):
 
         rules_list = "\n".join([f"- {r}" for r in rules])
 
-        v1_sys = f"""OBJECTIVE
-{task}
-
-RULES
-{rules_list}
-
-FORMAT
-{fmt}"""
-
-        v2_sys = f"""### OBJECTIVE DECLARATION
-{task}
-
-### FORMATTING CONTRACT (REQUIRED)
-{fmt}
-
-### HARD CONSTRAINTS
-{rules_list}
-"""
-
-        v3_sys = f"""# EXECUTION MANDATE
-{task}
-
-## BOUNDARY CONSTRAINTS
-{rules_list}
-- Adhere absolutely to the formatting schema. 
-- You do not need to explain your reasoning or show a chain of thought. You must proceed directly to emitting the exact final Output Format.
-
-## OUTPUT FORMAT
-{fmt}"""
+        v1_sys = build_reasoning_aware_variant_1_system_prompt(
+            task=task,
+            rules_list=rules_list,
+            output_format=fmt,
+        )
+        v2_sys = build_reasoning_aware_variant_2_system_prompt(
+            task=task,
+            rules_list=rules_list,
+            output_format=fmt,
+        )
+        v3_sys = build_reasoning_aware_variant_3_system_prompt(
+            task=task,
+            rules_list=rules_list,
+            output_format=fmt,
+        )
 
         variants = [
             PromptVariant(

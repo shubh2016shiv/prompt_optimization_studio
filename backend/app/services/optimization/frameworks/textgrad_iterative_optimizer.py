@@ -90,6 +90,11 @@ from app.services.optimization.optimizer_configuration import (
     TEXTGRAD_DEFAULT_ITERATION_COUNT,
     SYSTEM_PROMPT_FOR_JSON_EXTRACTION,
 )
+from app.services.optimization.prompt_registry.textgrad import (
+    TEXTGRAD_EVALUATION_PROMPT_TEMPLATE,
+    TEXTGRAD_GRADIENT_LOCALISATION_PROMPT_TEMPLATE,
+    TEXTGRAD_PROMPT_REWRITE_PROMPT_TEMPLATE,
+)
 from app.services.optimization.shared_prompt_techniques import (
     integrate_gap_interview_answers_into_prompt,
     inject_input_variables_block,
@@ -104,74 +109,9 @@ logger = logging.getLogger(__name__)
 # LLM Prompt Templates for TextGrad Sub-Tasks
 # ──────────────────────────────────────────────────────────────────────────────
 
-_TEXTGRAD_EVALUATION_PROMPT = """
-You are a TCRTE prompt evaluator. Evaluate the following prompt against the
-5 TCRTE dimensions and identify specific weaknesses.
-
-TCRTE RUBRIC:
-  TASK:      Is there a clear imperative verb, measurable output, and success criterion?
-  CONTEXT:   Is the domain, data source, and temporal scope specified?
-  ROLE:      Is there an expert persona with seniority and behavioural calibration?
-  TONE:      Is formality, audience, and hedging prohibition specified?
-  EXECUTION: Is the output format, length limit, and prohibited content named?
-
-<prompt_to_evaluate>
-{current_prompt}
-</prompt_to_evaluate>
-
-Return ONLY valid JSON:
-{{
-  "scores": {{"task": 0, "context": 0, "role": 0, "tone": 0, "execution": 0}},
-  "violations": [
-    {{"dimension": "task|context|role|tone|execution", "description": "specific issue", "severity": "critical|moderate|minor"}}
-  ],
-  "overall_assessment": "one paragraph summary of the prompt's quality"
-}}
-"""
-
-_TEXTGRAD_GRADIENT_LOCALISATION_PROMPT = """
-You are a textual gradient localiser. Given a prompt and its TCRTE evaluation,
-identify the EXACT text spans that need modification and what each modification
-should achieve.
-
-<current_prompt>
-{current_prompt}
-</current_prompt>
-
-<evaluation_critique>
-{evaluation_critique}
-</evaluation_critique>
-
-For each violation, locate where in the prompt the fix should be applied.
-Return ONLY valid JSON:
-{{
-  "localised_edits": [
-    {{
-      "target_text": "exact text span to modify (or 'APPEND' / 'PREPEND' for new content)",
-      "suggested_action": "what to change, add, or remove",
-      "dimension_addressed": "task|context|role|tone|execution",
-      "priority": 1
-    }}
-  ]
-}}
-"""
-
-_TEXTGRAD_PROMPT_REWRITE_PROMPT = """
-You are a precision prompt rewriter. Apply the following localised edits to the
-prompt. Preserve ALL text that is not targeted by an edit. Do NOT add unnecessary
-content or remove working sections.
-
-<current_prompt>
-{current_prompt}
-</current_prompt>
-
-<edits_to_apply>
-{gradient_edits}
-</edits_to_apply>
-
-Return ONLY the complete rewritten prompt text (no JSON wrapping, no explanations).
-Output the full improved prompt directly.
-"""
+_TEXTGRAD_EVALUATION_PROMPT = TEXTGRAD_EVALUATION_PROMPT_TEMPLATE
+_TEXTGRAD_GRADIENT_LOCALISATION_PROMPT = TEXTGRAD_GRADIENT_LOCALISATION_PROMPT_TEMPLATE
+_TEXTGRAD_PROMPT_REWRITE_PROMPT = TEXTGRAD_PROMPT_REWRITE_PROMPT_TEMPLATE
 
 
 class TextGradIterativeOptimizer(BaseOptimizerStrategy):

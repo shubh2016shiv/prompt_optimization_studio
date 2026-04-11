@@ -29,6 +29,10 @@ from app.services.optimization.optimizer_configuration import (
     MAX_TOKENS_XML_REWRITE,
     SYSTEM_PROMPT_FOR_JSON_EXTRACTION,
 )
+from app.services.optimization.prompt_registry.xml_structured import (
+    XML_ONTOLOGY_PARSE_PROMPT_TEMPLATE,
+    XML_REWRITE_PROMPT_TEMPLATE,
+)
 from app.services.optimization.shared_prompt_techniques import (
     apply_ral_writer_constraint_restatement,
     compute_coverage_delta_description,
@@ -40,60 +44,8 @@ from app.services.optimization.shared_prompt_techniques import (
 logger = logging.getLogger(__name__)
 
 
-_XML_ONTOLOGY_PARSE_PROMPT = """
-You are an ontology architect for instruction systems.
-Extract the semantic structure of the prompt so it can be rewritten into robust XML bounds.
-
-<raw_prompt>
-{raw_prompt}
-</raw_prompt>
-
-Return ONLY valid JSON:
-{{
-  "objective": "single bounded objective",
-  "instruction_hierarchy": [
-    {{
-      "node": "instruction block label",
-      "purpose": "why this block exists",
-      "depends_on": ["other node labels"],
-      "priority": "critical|high|medium|low"
-    }}
-  ],
-  "hard_constraints": ["non-negotiable constraints"],
-  "soft_preferences": ["nice-to-have preferences"],
-  "required_outputs": {{
-    "format": "output format",
-    "schema_notes": "required fields or schema notes"
-  }},
-  "safety_bounds": ["hallucination and boundary constraints"]
-}}
-""".strip()
-
-
-_XML_REWRITE_PROMPT = """
-You are rewriting a system prompt with XML semantic bounding.
-Return a complete rewritten system prompt, not fragments.
-
-Objective for this pass:
-{objective}
-
-Ontology blueprint:
-{blueprint_json}
-
-Original prompt:
-<raw_prompt>
-{raw_prompt}
-</raw_prompt>
-
-Rules:
-- Keep original intent while rewriting prose for clarity.
-- Encode hard constraints using explicit MUST and MUST NOT statements.
-- Build an ontological hierarchy where higher-priority nodes appear earlier.
-- Use explicit XML boundaries for directive zones and output contract.
-- Include anti-hallucination boundaries and uncertainty behavior.
-- Keep scope narrow to one primary objective.
-- Return only the rewritten system prompt text.
-""".strip()
+_XML_ONTOLOGY_PARSE_PROMPT = XML_ONTOLOGY_PARSE_PROMPT_TEMPLATE
+_XML_REWRITE_PROMPT = XML_REWRITE_PROMPT_TEMPLATE
 
 
 class XmlStructuredOptimizer(BaseOptimizerStrategy):

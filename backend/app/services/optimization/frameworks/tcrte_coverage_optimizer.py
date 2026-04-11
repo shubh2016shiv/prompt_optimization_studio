@@ -80,6 +80,11 @@ from app.services.optimization.optimizer_configuration import (
     MAX_TOKENS_TCRTE_DIMENSION_FILL,
     SYSTEM_PROMPT_FOR_JSON_EXTRACTION,
 )
+from app.services.optimization.prompt_registry.tcrte import (
+    TCRTE_DIMENSION_FILL_PROMPT_TEMPLATE,
+    build_tcrte_variant_2_system_prompt,
+    build_tcrte_variant_3_system_prompt,
+)
 from app.services.optimization.shared_prompt_techniques import (
     integrate_gap_interview_answers_into_prompt,
     inject_input_variables_block,
@@ -116,34 +121,7 @@ TCRTE_DIMENSION_DESCRIPTIONS = {
 # LLM Prompt Template for TCRTE Dimension Filling
 # ──────────────────────────────────────────────────────────────────────────────
 
-_TCRTE_DIMENSION_FILL_PROMPT = """
-You are an expert prompt architect. The user's raw prompt is UNDERSPECIFIED
-and needs structural repair across the 5 TCRTE dimensions.
-
-Here is the raw prompt:
-<raw_prompt>
-{raw_prompt}
-</raw_prompt>
-
-{dimension_repair_instructions}
-
-Rewrite the prompt with explicit sections for ALL 5 TCRTE dimensions.
-For dimensions marked as MISSING or WEAK, you MUST generate substantial content.
-For dimensions marked as GOOD, preserve the original content.
-
-{user_provided_answers_block}
-
-Return ONLY valid JSON matching this schema:
-{{
-  "task_section": "Explicit task definition with measurable outputs and success criteria",
-  "context_section": "Domain, data sources, temporal scope, grounding information",
-  "role_section": "Expert persona with seniority and behavioural calibration",
-  "tone_section": "Formality register, audience type, hedging rules",
-  "execution_section": "Output format, length constraints, prohibited content",
-  "constraints": ["list of identified constraints"],
-  "critical_context_for_core": "The single most important context element"
-}}
-"""
+_TCRTE_DIMENSION_FILL_PROMPT = TCRTE_DIMENSION_FILL_PROMPT_TEMPLATE
 
 _TCRTE_FILLED_SECTIONS_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -356,58 +334,24 @@ class TcrteCoverageOptimizer(BaseOptimizerStrategy):
         variant_1_system_prompt = "\n".join(variant_1_parts)
 
         # ── Variant 2: Structured — full 5-section TCRTE architecture ──
-        variant_2_system_prompt = f"""### ROLE
-{role_section}
-
-### TASK
-{task_section}
-
-### CONTEXT
-{context_section}
-
-### TONE
-{tone_section}
-
-### EXECUTION
-{execution_section}
-
-### CONSTRAINTS
-{format_list_as_bullet_points(constraints)}"""
+        variant_2_system_prompt = build_tcrte_variant_2_system_prompt(
+            role_section=role_section,
+            task_section=task_section,
+            context_section=context_section,
+            tone_section=tone_section,
+            execution_section=execution_section,
+            constraints_text=format_list_as_bullet_points(constraints),
+        )
 
         # ── Variant 3: Advanced — full TCRTE + all guards ──
-        variant_3_system_prompt = f"""=================
-[R] ROLE DEFINITION
-=================
-{role_section}
-You must strictly maintain this persona for the duration of the request.
-
-=================
-[T] TASK MANDATE
-=================
-{task_section}
-
-=================
-[C] CONTEXT GROUNDING
-=================
-{context_section}
-
-=================
-[T] TONE SPECIFICATION
-=================
-{tone_section}
-
-=================
-[E] EXECUTION CONSTRAINTS
-=================
-{execution_section}
-
-=================
-HARD CONSTRAINTS
-=================
-{format_list_as_bullet_points(constraints)}
-- Do NOT hallucinate facts outside the provided context.
-- Do NOT append conversational preamble or postamble.
-- Validate all output against the execution schema before responding."""
+        variant_3_system_prompt = build_tcrte_variant_3_system_prompt(
+            role_section=role_section,
+            task_section=task_section,
+            context_section=context_section,
+            tone_section=tone_section,
+            execution_section=execution_section,
+            constraints_text=format_list_as_bullet_points(constraints),
+        )
 
         # Step 5: Apply enhancements
 

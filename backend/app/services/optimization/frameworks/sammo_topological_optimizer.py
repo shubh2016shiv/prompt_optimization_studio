@@ -32,6 +32,10 @@ from app.services.optimization.optimizer_configuration import (
     SAMMO_TOKEN_WEIGHT,
     SYSTEM_PROMPT_FOR_JSON_EXTRACTION,
 )
+from app.services.optimization.prompt_registry.sammo import (
+    SAMMO_MUTATION_PROMPT_TEMPLATE,
+    SAMMO_PARSE_PROMPT_TEMPLATE,
+)
 from app.services.optimization.shared_prompt_techniques import (
     compute_coverage_delta_description,
     generate_claude_prefill_suggestion,
@@ -74,48 +78,8 @@ class SammoCandidate:
     combined_score: float
 
 
-_SAMMO_PARSE_PROMPT = """
-Parse the raw prompt into a structured prompt graph.
-
-<raw_prompt>
-{raw_prompt}
-</raw_prompt>
-
-Return ONLY valid JSON:
-{{
-  "instruction": "core instruction",
-  "context_blocks": ["context block 1", "context block 2"],
-  "rules": ["rule 1", "rule 2"],
-  "few_shot": ["few-shot or exemplar block"],
-  "output_format": "required output format and schema guidance"
-}}
-""".strip()
-
-_SAMMO_MUTATION_PROMPT = """
-Mutate this prompt graph using the requested operator while preserving task intent.
-
-<mutation_operator>
-{mutation_operator}
-</mutation_operator>
-
-<current_graph_json>
-{graph_json}
-</current_graph_json>
-
-Operator semantics:
-- compression: aggressively compress context_blocks while preserving critical facts.
-- restructure: reorder sections and remove one low-value rule if safe.
-- syntactical: rewrite instruction for maximal imperative clarity.
-
-Return ONLY valid JSON with the same schema:
-{{
-  "instruction": "core instruction",
-  "context_blocks": ["context block 1", "context block 2"],
-  "rules": ["rule 1", "rule 2"],
-  "few_shot": ["few-shot or exemplar block"],
-  "output_format": "required output format and schema guidance"
-}}
-""".strip()
+_SAMMO_PARSE_PROMPT = SAMMO_PARSE_PROMPT_TEMPLATE
+_SAMMO_MUTATION_PROMPT = SAMMO_MUTATION_PROMPT_TEMPLATE
 
 
 class SammoTopologicalOptimizer(BaseOptimizerStrategy):

@@ -1,0 +1,7 @@
+from .ontology_parse_prompt import TEMPLATE as XML_ONTOLOGY_PARSE_PROMPT_TEMPLATE
+from .rewrite_prompt import TEMPLATE as XML_REWRITE_PROMPT_TEMPLATE
+
+__all__ = [
+    "XML_ONTOLOGY_PARSE_PROMPT_TEMPLATE",
+    "XML_REWRITE_PROMPT_TEMPLATE",
+]

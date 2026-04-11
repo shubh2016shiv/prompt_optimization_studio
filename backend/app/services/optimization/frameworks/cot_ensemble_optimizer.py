@@ -78,6 +78,13 @@ from app.services.optimization.optimizer_configuration import (
     MAX_TOKENS_SYNTHETIC_EXAMPLE_GENERATION,
     SYSTEM_PROMPT_FOR_JSON_EXTRACTION,
 )
+from app.services.optimization.prompt_registry.cot_ensemble import (
+    COT_COMPONENT_EXTRACTION_PROMPT_TEMPLATE,
+    SYNTHETIC_FEW_SHOT_GENERATION_PROMPT_TEMPLATE,
+    build_cot_variant_1_system_prompt,
+    build_cot_variant_2_system_prompt,
+    build_cot_variant_3_system_prompt,
+)
 from app.services.optimization.shared_prompt_techniques import (
     integrate_gap_interview_answers_into_prompt,
     inject_input_variables_block,
@@ -95,52 +102,8 @@ logger = logging.getLogger(__name__)
 # LLM Prompt Templates for Sub-Tasks
 # ──────────────────────────────────────────────────────────────────────────────
 
-_COT_COMPONENT_EXTRACTION_PROMPT = """
-Analyze the following prompt and extract its core components for a Chain-of-Thought
-ensemble optimization. Focus on identifying the reasoning requirements.
-
-Extract:
-1. "task": The primary objective that requires step-by-step reasoning.
-2. "reasoning_steps": A list of the sequential reasoning steps needed to complete the task.
-3. "constraints": Hard rules the model must follow.
-4. "output_format": The expected output structure.
-5. "critical_context": The most important context that must not be lost (for CoRe injection).
-
-<raw_prompt>
-{raw_prompt}
-</raw_prompt>
-
-Return ONLY valid JSON matching this schema:
-{{
-  "task": "string",
-  "reasoning_steps": ["step1", "step2", ...],
-  "constraints": ["constraint1", ...],
-  "output_format": "string",
-  "critical_context": "string"
-}}
-"""
-
-_SYNTHETIC_FEW_SHOT_GENERATION_PROMPT = """
-Generate {count} few-shot examples for the following task type: "{task_type}".
-Each example should be a prompt optimization transformation that includes:
-1. An original raw prompt (before optimization)
-2. The optimized system prompt (after optimization)
-3. A step-by-step reasoning trace explaining each optimization decision
-
-The examples should be realistic, domain-appropriate, and demonstrate clear
-reasoning about WHY each change was made.
-
-Return ONLY valid JSON:
-{{
-  "examples": [
-    {{
-      "raw_prompt": "the original prompt text",
-      "optimized_system_prompt": "the improved prompt text",
-      "reasoning_trace": "Step 1: ... Step 2: ... Step 3: ..."
-    }}
-  ]
-}}
-"""
+_COT_COMPONENT_EXTRACTION_PROMPT = COT_COMPONENT_EXTRACTION_PROMPT_TEMPLATE
+_SYNTHETIC_FEW_SHOT_GENERATION_PROMPT = SYNTHETIC_FEW_SHOT_GENERATION_PROMPT_TEMPLATE
 
 
 class ChainOfThoughtEnsembleOptimizer(BaseOptimizerStrategy):
@@ -332,88 +295,39 @@ class ChainOfThoughtEnsembleOptimizer(BaseOptimizerStrategy):
         )
         reasoning_steps_text = "\n".join(f"  {i}. {step}" for i, step in enumerate(reasoning_steps, 1))
 
-        variant_1_system_prompt = f"""TASK: {task_description}
-
-APPROACH — Single-Path Reasoning:
-Follow these steps sequentially:
-{reasoning_steps_text}
-
-{f"DEMONSTRATION:{chr(10)}{conservative_examples_block}" if conservative_examples_block else ""}
-
-CONSTRAINTS:
-{format_list_as_bullet_points(constraints)}
-
-OUTPUT FORMAT: {output_format}"""
+        variant_1_system_prompt = build_cot_variant_1_system_prompt(
+            task_description=task_description,
+            reasoning_steps_text=reasoning_steps_text,
+            demonstration_block=conservative_examples_block,
+            constraints_text=format_list_as_bullet_points(constraints),
+            output_format=output_format,
+        )
 
         # ── Variant 2: Structured — 2 examples + dual-path + self-check ──
         structured_examples_block = self._format_examples_as_demonstration_blocks(
             all_examples, max_examples_to_include=2,
         )
 
-        variant_2_system_prompt = f"""TASK: {task_description}
-
-APPROACH — Dual-Path Reasoning with Self-Check:
-You must generate TWO independent reasoning paths for this task.
-For each path, show your working step by step.
-
-Path 1 — Analytical Approach:
-{reasoning_steps_text}
-
-Path 2 — Verification Approach:
-  1. Re-read the original input from a different angle.
-  2. Challenge any assumptions from Path 1.
-  3. Identify potential errors or oversights.
-
-SELF-CHECK:
-After both paths, compare results. If they agree, proceed with confidence.
-If they disagree, explain the discrepancy and choose the more robust answer.
-
-{f"DEMONSTRATIONS:{chr(10)}{structured_examples_block}" if structured_examples_block else ""}
-
-CONSTRAINTS:
-{format_list_as_bullet_points(constraints)}
-
-OUTPUT FORMAT: {output_format}"""
+        variant_2_system_prompt = build_cot_variant_2_system_prompt(
+            task_description=task_description,
+            reasoning_steps_text=reasoning_steps_text,
+            demonstrations_block=structured_examples_block,
+            constraints_text=format_list_as_bullet_points(constraints),
+            output_format=output_format,
+        )
 
         # ── Variant 3: Advanced — 3 examples + tri-path + ensemble + guards ──
         advanced_examples_block = self._format_examples_as_demonstration_blocks(
             all_examples, max_examples_to_include=3,
         )
 
-        variant_3_system_prompt = f"""TASK: {task_description}
-
-APPROACH — Tri-Path Ensemble Synthesis:
-You must generate THREE independent reasoning paths. Each path must approach
-the problem from a fundamentally different angle. After all three, synthesise
-across paths using majority-vote logic.
-
-Path 1 — Sequential Analytical Approach:
-{reasoning_steps_text}
-
-Path 2 — Adversarial Verification:
-  1. Assume Path 1's answer is WRONG. What evidence would disprove it?
-  2. Check boundary conditions and edge cases.
-  3. Re-derive the answer independently.
-
-Path 3 — First-Principles Decomposition:
-  1. Strip the problem to its most fundamental components.
-  2. Solve each component in isolation.
-  3. Reassemble the component solutions into a coherent answer.
-
-ENSEMBLE SYNTHESIS:
-Compare all three paths. For each claim, count how many paths agree.
-If unanimous: high confidence — proceed.
-If 2-of-3 agree: moderate confidence — explain the dissent.
-If all disagree: flag uncertainty — present all three perspectives.
-
-{f"DEMONSTRATIONS:{chr(10)}{advanced_examples_block}" if advanced_examples_block else ""}
-
-CONSTRAINTS:
-{format_list_as_bullet_points(constraints)}
-- Do NOT hallucinate facts outside the provided context.
-- Do NOT skip any ensemble path — all three must be shown.
-
-OUTPUT FORMAT: {output_format}"""
+        variant_3_system_prompt = build_cot_variant_3_system_prompt(
+            task_description=task_description,
+            reasoning_steps_text=reasoning_steps_text,
+            demonstrations_block=advanced_examples_block,
+            constraints_text=format_list_as_bullet_points(constraints),
+            output_format=output_format,
+        )
 
         # Step 5: Apply enhancements
 
