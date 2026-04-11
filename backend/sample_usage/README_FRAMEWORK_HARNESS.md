@@ -5,10 +5,16 @@ This harness runs each optimization framework against a centralized set of 10 he
 ## What You Get
 
 - 10 centralized healthcare scenarios: `healthcare_prompt_scenarios.py`
-- 8 isolated framework runner scripts:
+- 13 isolated framework runner scripts:
+  - `run_framework_overshoot_undershoot_suite.py`
+  - `run_framework_core_attention_suite.py`
+  - `run_framework_ral_writer_suite.py`
+  - `run_framework_opro_suite.py`
+  - `run_framework_sammo_suite.py`
   - `run_framework_kernel_suite.py`
   - `run_framework_xml_structured_suite.py`
   - `run_framework_create_suite.py`
+  - `run_framework_create_regression_check.py`
   - `run_framework_progressive_suite.py`
   - `run_framework_reasoning_aware_suite.py`
   - `run_framework_cot_ensemble_suite.py`
@@ -44,6 +50,14 @@ From `backend/`:
 
 - Single framework:
   - `python sample_usage/run_framework_kernel_suite.py`
+- Newer frameworks:
+  - `python sample_usage/run_framework_overshoot_undershoot_suite.py`
+  - `python sample_usage/run_framework_core_attention_suite.py`
+  - `python sample_usage/run_framework_ral_writer_suite.py`
+  - `python sample_usage/run_framework_opro_suite.py`
+  - `python sample_usage/run_framework_sammo_suite.py`
+- Focused CREATE regression check:
+  - `python sample_usage/run_framework_create_regression_check.py`
 - All frameworks:
   - `python sample_usage/run_all_framework_suites.py`
 

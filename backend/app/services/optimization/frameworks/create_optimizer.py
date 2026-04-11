@@ -50,6 +50,14 @@ _CREATE_REWRITE_PROMPT = CREATE_REWRITE_PROMPT_TEMPLATE
 class CreateOptimizer(BaseOptimizerStrategy):
     """Deep CREATE rewrite optimizer."""
 
+    _META_LEAK_TOKENS = (
+        "create framework architect",
+        "extract stable create anchors",
+        "extract create anchors",
+        "blueprint",
+        "pillars",
+    )
+
     def _coerce_str_list(self, value: Any) -> list[str]:
         if not isinstance(value, list):
             return []
@@ -69,6 +77,17 @@ class CreateOptimizer(BaseOptimizerStrategy):
             "forbidden_behaviors": ["Do not hallucinate unsupported facts."],
             "verification_checks": ["Confirm the output matches the requested format."],
         }
+
+    def _blueprint_has_meta_leakage(self, blueprint: dict[str, Any]) -> bool:
+        fields_to_check = [
+            str(blueprint.get("character", "")),
+            str(blueprint.get("request", "")),
+            str(blueprint.get("type_of_output", "")),
+        ]
+        fields_to_check.extend(self._coerce_str_list(blueprint.get("examples")))
+        fields_to_check.extend(self._coerce_str_list(blueprint.get("adjustments")))
+        combined_text = "\n".join(fields_to_check).lower()
+        return any(token in combined_text for token in self._META_LEAK_TOKENS)
 
     async def _parse_create_blueprint(
         self,
@@ -108,7 +127,7 @@ class CreateOptimizer(BaseOptimizerStrategy):
             or default_blueprint["verification_checks"]
         )
 
-        return {
+        normalized_blueprint = {
             "character": character,
             "request": request_objective,
             "examples": examples,
@@ -118,6 +137,12 @@ class CreateOptimizer(BaseOptimizerStrategy):
             "forbidden_behaviors": forbidden_behaviors,
             "verification_checks": verification_checks,
         }
+
+        if self._blueprint_has_meta_leakage(normalized_blueprint):
+            logger.warning("CREATE blueprint meta leakage detected; using default blueprint.")
+            return default_blueprint
+
+        return normalized_blueprint
 
     async def _rewrite_with_create_objective(
         self,

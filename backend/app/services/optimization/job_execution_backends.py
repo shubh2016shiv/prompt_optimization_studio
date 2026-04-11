@@ -157,3 +157,61 @@ class ProcessPoolOptimizationJobExecutionBackend:
         """
         self._process_pool.shutdown(wait=False, cancel_futures=True)
         logger.info("optimize.job_workers_shutdown")
+
+
+class InProcessOptimizationJobExecutionBackend:
+    """
+    Execute optimization jobs on the current process event loop.
+
+    Educational note:
+      This is a resilience fallback for environments where a process pool cannot
+      be created (for example, restricted Windows sandboxes). It preserves job
+      API behavior, but heavy optimization work will share the API process.
+    """
+
+    async def execute_job(
+        self,
+        request_payload: OptimizationRequest,
+        request_id: str | None,
+        job_id: str,
+        few_shot_corpus_state: Any | None,
+    ) -> OptimizationResponse:
+        redis_store = RedisStore()
+
+        async def ensure_job_not_cancelled() -> None:
+            persisted_job_record = await redis_store.get_job_record(job_id)
+            if persisted_job_record is not None and persisted_job_record.status == "cancelled":
+                raise OptimizationJobCancelledError(f"Optimization job '{job_id}' was cancelled.")
+
+        try:
+            return await execute_optimization_request(
+                request=request_payload,
+                request_id=request_id,
+                few_shot_corpus_state=few_shot_corpus_state,
+                cache_store=redis_store,
+                cancellation_check=ensure_job_not_cancelled,
+            )
+        finally:
+            await redis_store.close()
+
+    async def shutdown(self) -> None:
+        return None
+
+
+def build_default_job_execution_backend() -> OptimizationJobExecutionBackend:
+    """
+    Build the preferred execution backend with a safe runtime fallback.
+
+    Association:
+      Used by OptimizationJobService so application startup remains resilient in
+      constrained local environments while production can still use processes.
+    """
+    try:
+        return ProcessPoolOptimizationJobExecutionBackend()
+    except (OSError, PermissionError, ValueError) as backend_error:
+        logger.warning(
+            "optimize.job_backend_fallback_enabled",
+            backend="in_process",
+            error=str(backend_error),
+        )
+        return InProcessOptimizationJobExecutionBackend()

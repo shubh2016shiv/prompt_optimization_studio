@@ -19,5 +19,8 @@ Rules:
 - Convert adjustments into executable MUST and MUST NOT rules.
 - Keep one bounded objective and avoid speculative scope expansion.
 - Include verification checks in actionable language.
+- The final prompt must be directly executable for solving the original user task.
+- Do NOT mention CREATE, anchors, blueprint extraction, framework architecture, or prompt-analysis steps.
+- Do NOT return JSON unless JSON is the task-facing prompt format required by the original task.
 - Return only the final rewritten system prompt text.
 """.strip()

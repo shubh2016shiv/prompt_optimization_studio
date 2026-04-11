@@ -54,6 +54,11 @@ VALID_FRAMEWORKS = (
     "cot_ensemble",
     "tcrte",
     "textgrad",
+    "overshoot_undershoot",
+    "core_attention",
+    "ral_writer",
+    "opro",
+    "sammo",
 )
 
 
@@ -84,7 +89,7 @@ def _minimal_gap_data(case: PromptCase) -> dict[str, Any]:
 
 
 def _request_body(case: PromptCase, framework: str, api_key: str) -> dict[str, Any]:
-    return {
+    body = {
         "raw_prompt": case["raw_prompt"],
         "input_variables": case["input_variables"],
         "task_type": case["task_type"],
@@ -101,6 +106,35 @@ def _request_body(case: PromptCase, framework: str, api_key: str) -> dict[str, A
         },
         "api_key": api_key,
     }
+    if framework == "opro":
+        body["evaluation_dataset"] = _opro_minimal_evaluation_dataset(case)
+    return body
+
+
+def _opro_minimal_evaluation_dataset(case: PromptCase) -> list[dict[str, Any]]:
+    """
+    Provide a bounded dataset for OPRO empirical trajectory scoring.
+
+    OPRO requires evaluation_dataset by design. We keep this intentionally small
+    so framework usage runs stay deterministic and finish in practical time.
+    """
+    return [
+        {
+            "input": (
+                f"Case: {case['title']}\n"
+                f"Task: {case['task_type']}\n"
+                "Generate output that follows the required schema and constraints."
+            ),
+            "expected_output": (
+                "A structured, constraint-compliant response that follows the requested format."
+            ),
+        }
+    ]
+
+
+def _request_timeout_seconds(framework: str) -> float:
+    # OPRO performs iterative candidate search + empirical scoring and needs a wider budget.
+    return 900.0 if framework == "opro" else 420.0
 
 
 def _safe_avg_quality(variants: list[dict[str, Any]]) -> float | None:
@@ -282,7 +316,7 @@ def run_framework_transparency_harness(framework: str) -> int:
 
     for index, case in enumerate(PROMPT_CASES, start=1):
         body = _request_body(case, framework, api_key)
-        status, data, raw = _post_optimize(body, timeout=420.0)
+        status, data, raw = _post_optimize(body, timeout=_request_timeout_seconds(framework))
 
         if status != 200 or not isinstance(data, dict):
             fail_count += 1

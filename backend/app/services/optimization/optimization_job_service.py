@@ -32,7 +32,7 @@ from app.models.responses import (
 )
 from app.services.optimization.job_execution_backends import (
     OptimizationJobExecutionBackend,
-    ProcessPoolOptimizationJobExecutionBackend,
+    build_default_job_execution_backend,
 )
 from app.services.optimization.optimization_pipeline import (
     OptimizationJobCancelledError,
@@ -66,7 +66,7 @@ class OptimizationJobService:
         job_ttl_seconds: int = 7 * 24 * 60 * 60,
     ) -> None:
         self._job_store = job_store
-        self._execution_backend = execution_backend or ProcessPoolOptimizationJobExecutionBackend()
+        self._execution_backend = execution_backend or build_default_job_execution_backend()
         self._job_ttl_seconds = job_ttl_seconds
         self._background_tasks_by_job_id: dict[str, asyncio.Task[None]] = {}
 
