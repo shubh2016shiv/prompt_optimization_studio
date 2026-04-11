@@ -16,6 +16,7 @@ import structlog
 
 from app.config import get_settings
 from app.services.store.base import ICacheStore
+from app.services.optimization.few_shot_corpus import CORPUS_FINGERPRINT
 
 logger = structlog.get_logger(__name__)
 
@@ -81,7 +82,7 @@ class CachedOptimizationOperations:
           does the hard work. The other 99 requests fall into a waiting loop, periodically checking 
           the cache until the first worker finishes.
         """
-        cache_key = "few_shot_corpus"
+        cache_key = f"few_shot_corpus:{CORPUS_FINGERPRINT}"
         cached_value = await self._cache_store.get_json(cache_key)
         if cached_value is not None:
             logger.info("optimize.cache_hit", cache_key=cache_key, operation="few_shot_corpus")

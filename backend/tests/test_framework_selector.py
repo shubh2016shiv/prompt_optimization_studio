@@ -44,7 +44,7 @@ def test_select_framework_xml_structured_multidoc():
 
 def test_select_framework_progressive():
     """
-    Complex planning/coding tasks should select progressive.
+    Complex planning/coding tasks should be remapped to ROI allowlist.
     """
     framework, reason = select_framework(
         is_reasoning_model=False,
@@ -54,8 +54,8 @@ def test_select_framework_progressive():
         provider="openai",
         recommended_techniques=[]
     )
-    assert framework == "progressive"
-    assert "Progressive scaffolding builds" in reason
+    assert framework == "create"
+    assert "Auto-routing ROI policy remapped 'progressive' to 'create'" in reason
 
 def test_select_framework_cot_ensemble():
     """
@@ -83,8 +83,8 @@ def test_select_framework_opro_requires_evaluation_dataset_and_signal():
         recommended_techniques=["iterative_refinement"],
         has_evaluation_dataset=True,
     )
-    assert framework == "opro"
-    assert "prompt-score trajectories" in reason
+    assert framework == "textgrad"
+    assert "Auto-routing ROI policy remapped 'opro' to 'textgrad'" in reason
 
 
 def test_select_framework_does_not_auto_select_opro_without_evaluation_dataset():
@@ -111,8 +111,8 @@ def test_select_framework_sammo_when_structure_aware_signal_present():
         recommended_techniques=["structure_aware"],
         has_evaluation_dataset=False,
     )
-    assert framework == "sammo"
-    assert "topology" in reason
+    assert framework == "core_attention"
+    assert "Auto-routing ROI policy remapped 'sammo' to 'core_attention'" in reason
 
 
 def test_select_framework_sammo_not_selected_without_signal():
@@ -177,8 +177,8 @@ def test_select_framework_accepts_progressive_product_vocabulary():
         provider="openai",
         recommended_techniques=["Progressive-Disclosure"],
     )
-    assert framework == "progressive"
-    assert "progressive staging" in reason
+    assert framework == "create"
+    assert "Auto-routing ROI policy remapped 'progressive' to 'create'" in reason
 
 
 def test_select_framework_prefill_is_ignored_for_routing():
@@ -275,8 +275,8 @@ def test_select_framework_score_50_avoids_textgrad():
         provider="openai",
         recommended_techniques=[]
     )
-    assert framework == "progressive"
-    assert "lower-cost default" in reason
+    assert framework == "create"
+    assert "Auto-routing ROI policy remapped 'progressive' to 'create'" in reason
 
 
 def test_select_framework_medium_complexity_maps_to_standard_for_moderate_scores():
@@ -319,3 +319,52 @@ def test_select_framework_default_unmatched_goes_kernel():
     )
     assert framework == "kernel"
     assert "lower-cost default" in reason
+
+
+def test_select_framework_auto_allowlist_blocks_legacy_frameworks():
+    allowed_frameworks = {
+        "create",
+        "xml_structured",
+        "core_attention",
+        "ral_writer",
+        "cot_ensemble",
+        "overshoot_undershoot",
+        "textgrad",
+        "kernel",
+        "tcrte",
+        "reasoning_aware",
+    }
+
+    scenarios = [
+        {
+            "is_reasoning_model": False,
+            "task_type": "analysis",
+            "complexity": "complex",
+            "tcrte_overall_score": 82,
+            "provider": "openai",
+            "recommended_techniques": ["iterative_refinement"],
+            "has_evaluation_dataset": True,
+        },
+        {
+            "is_reasoning_model": False,
+            "task_type": "extraction",
+            "complexity": "expert",
+            "tcrte_overall_score": 78,
+            "provider": "openai",
+            "recommended_techniques": ["structure_aware"],
+            "has_evaluation_dataset": False,
+        },
+        {
+            "is_reasoning_model": False,
+            "task_type": "planning",
+            "complexity": "complex",
+            "tcrte_overall_score": 80,
+            "provider": "openai",
+            "recommended_techniques": ["Progressive-Disclosure"],
+            "has_evaluation_dataset": False,
+        },
+    ]
+
+    for scenario in scenarios:
+        framework, _ = select_framework(**scenario)
+        assert framework in allowed_frameworks

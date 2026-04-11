@@ -165,6 +165,7 @@ class ChainOfThoughtEnsembleOptimizer(BaseOptimizerStrategy):
         generation_prompt = _SYNTHETIC_FEW_SHOT_GENERATION_PROMPT.format(
             count=desired_example_count,
             task_type=task_type,
+            target_raw_prompt=request.raw_prompt.strip()[:1200],
         )
 
         try:
@@ -175,6 +176,7 @@ class ChainOfThoughtEnsembleOptimizer(BaseOptimizerStrategy):
                     max_tokens=MAX_TOKENS_SYNTHETIC_EXAMPLE_GENERATION,
                     model=request.model_id,
                     system=SYSTEM_PROMPT_FOR_JSON_EXTRACTION,
+                    response_format={"type": "json_object"},
                 )
             parsed_response = extract_json_from_llm_response(llm_response_text)
             generated_examples = parsed_response.get("examples", [])
@@ -271,6 +273,7 @@ class ChainOfThoughtEnsembleOptimizer(BaseOptimizerStrategy):
                 max_tokens=MAX_TOKENS_COMPONENT_EXTRACTION,
                 model=request.model_id,
                 system=SYSTEM_PROMPT_FOR_JSON_EXTRACTION,
+                response_format={"type": "json_object"},
             )
 
         extracted_components = extract_json_from_llm_response(extraction_response_text)
@@ -286,6 +289,7 @@ class ChainOfThoughtEnsembleOptimizer(BaseOptimizerStrategy):
             task_type=request.task_type,
             request=request,
         )
+        examples_source = "knn" if (few_shot_examples and len(few_shot_examples) > 0) else "synthetic"
 
         # Step 4: Assemble 3 variants with escalating ensemble depth
 
@@ -391,20 +395,31 @@ class ChainOfThoughtEnsembleOptimizer(BaseOptimizerStrategy):
             PromptVariant(
                 id=3,
                 name="Advanced",
-                strategy="Tri-path ensemble with 3 kNN examples, majority-vote synthesis, CoRe, and full guards.",
+                strategy=(
+                    "Tri-path ensemble with 3 few-shot examples, majority-vote synthesis, CoRe, and full guards "
+                    f"(few-shot source: {examples_source})."
+                ),
                 system_prompt=variant_3_system_prompt.strip(),
                 user_prompt="[Insert request data here]",
                 prefill_suggestion=advanced_prefill,
                 token_estimate=len(variant_3_system_prompt) // 4,
                 tcrte_scores=VariantTCRTEScores(task=95, context=90, role=70, tone=70, execution=95),
-                strengths=["Ensemble consensus", "Anti-hallucination guards", "CoRe injection", "kNN few-shot grounding"],
+                strengths=[
+                    "Ensemble consensus",
+                    "Anti-hallucination guards",
+                    "CoRe injection",
+                    ("kNN few-shot grounding" if examples_source == "knn" else "Synthetic few-shot grounding"),
+                ],
                 best_for="High-stakes reasoning (medical, legal, financial analysis)",
                 overshoot_guards=["Must complete all 3 paths", "No hallucination"],
                 undershoot_guards=["Ensemble synthesis required", "Majority-vote logic enforced"],
             ),
         ]
 
-        model_notes = f"CoT Ensemble (Medprompt) with {len(all_examples)} few-shot example(s) applied."
+        model_notes = (
+            f"CoT Ensemble (Medprompt) with {len(all_examples)} few-shot example(s) applied "
+            f"(source: {examples_source})."
+        )
         if auto_reason:
             model_notes += f" Auto-select logic: {auto_reason}"
 
@@ -415,9 +430,15 @@ class ChainOfThoughtEnsembleOptimizer(BaseOptimizerStrategy):
             coverage_delta=compute_coverage_delta_description(request.gap_data, 85),
         )
 
+        techniques = ["CoT Ensemble", "Multi-Path Reasoning", "Self-Check"]
+        if examples_source == "knn":
+            techniques.insert(1, "Medprompt kNN")
+        else:
+            techniques.insert(1, "Synthetic Few-Shot")
+
         response = OptimizationResponse(
             analysis=analysis,
-            techniques_applied=["CoT Ensemble", "Medprompt kNN", "Multi-Path Reasoning", "Self-Check"],
+            techniques_applied=techniques,
             variants=variants,
         )
 

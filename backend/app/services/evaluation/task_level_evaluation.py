@@ -195,40 +195,54 @@ class TaskLevelEvaluationService:
             await cancellation_check()
 
         async with case_evaluation_semaphore:
-            if cancellation_check is not None:
-                await cancellation_check()
+            try:
+                if cancellation_check is not None:
+                    await cancellation_check()
 
-            generated_output_text = await self._generate_variant_output_for_case(
-                llm_client=llm_client,
-                optimization_request=optimization_request,
-                prompt_variant=prompt_variant,
-                case_input_text=evaluation_case.input,
-            )
-
-            if cancellation_check is not None:
-                await cancellation_check()
-
-            deterministic_case_score = self._deterministic_task_scorer.score_generated_output(
-                generated_output_text=generated_output_text,
-                expected_output_reference=evaluation_case.expected_output,
-                expected_output_json_schema=evaluation_case.expected_output_json_schema,
-            )
-            case_score_value = deterministic_case_score.score
-            scoring_method: Literal["deterministic", "rubric", "pairwise"] = "deterministic"
-            failure_reason = deterministic_case_score.failure_reason
-
-            if deterministic_case_score.should_use_rubric:
-                rubric_case_score = await self._rubric_task_judge.score_case_with_rubric(
+                generated_output_text = await self._generate_variant_output_for_case(
                     llm_client=llm_client,
-                    provider=optimization_request.provider,
-                    model_id=optimization_request.model_id,
+                    optimization_request=optimization_request,
+                    prompt_variant=prompt_variant,
                     case_input_text=evaluation_case.input,
-                    expected_output_reference=evaluation_case.expected_output,
-                    generated_output_text=generated_output_text,
                 )
-                case_score_value = rubric_case_score.score
-                scoring_method = "rubric"
-                failure_reason = rubric_case_score.failure_reason
+
+                if cancellation_check is not None:
+                    await cancellation_check()
+
+                deterministic_case_score = self._deterministic_task_scorer.score_generated_output(
+                    generated_output_text=generated_output_text,
+                    expected_output_reference=evaluation_case.expected_output,
+                    expected_output_json_schema=evaluation_case.expected_output_json_schema,
+                )
+                case_score_value = deterministic_case_score.score
+                scoring_method: Literal["deterministic", "rubric", "pairwise"] = "deterministic"
+                failure_reason = deterministic_case_score.failure_reason
+
+                if deterministic_case_score.should_use_rubric:
+                    rubric_case_score = await self._rubric_task_judge.score_case_with_rubric(
+                        llm_client=llm_client,
+                        provider=optimization_request.provider,
+                        model_id=optimization_request.model_id,
+                        case_input_text=evaluation_case.input,
+                        expected_output_reference=evaluation_case.expected_output,
+                        generated_output_text=generated_output_text,
+                    )
+                    case_score_value = rubric_case_score.score
+                    scoring_method = "rubric"
+                    failure_reason = rubric_case_score.failure_reason
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as evaluation_error:
+                logger.warning(
+                    "optimize.task_evaluation.case_failed",
+                    case_index=case_index,
+                    error=str(evaluation_error),
+                )
+                generated_output_text = ""
+                case_score_value = 0
+                scoring_method = "deterministic"
+                failure_reason = f"Evaluation failed: {evaluation_error}"
 
             status_value = self._classify_case_status(case_score_value)
             case_result = TaskEvaluationCaseResult(
@@ -369,12 +383,15 @@ class TaskLevelEvaluationService:
                 candidate_a_output_text=leading_outputs[case_offset],
                 candidate_b_output_text=trailing_outputs[case_offset],
             )
+            if pairwise_winner is None:
+                continue
             if pairwise_winner == "A":
                 leading_wins += 1
                 compared_case_indexes.append(case_offset + 1)
             elif pairwise_winner == "B":
                 trailing_wins += 1
                 compared_case_indexes.append(case_offset + 1)
+            
 
         if leading_wins == trailing_wins:
             return

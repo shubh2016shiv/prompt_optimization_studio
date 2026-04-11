@@ -1,4 +1,4 @@
-# APOST Backend — Automated Prompt Optimisation & Structuring Tool
+﻿# APOST Backend — Automated Prompt Optimisation & Structuring Tool
 
 The APOST backend is a production-grade FastAPI service designed to transform weak, underspecified instructions into highly reliable, structured prompts. It powers the APOST frontend interface by providing a suite of advanced, verifiable prompt-engineering tools.
 
@@ -14,11 +14,11 @@ Unlike standard "wrapper" APIs, the APOST backend is built on deterministic, mat
 
 ## Architecture & Code Layout
 
-- **`app/api/route/`** — FastAPI HTTP endpoints mapping to the UI (`/gap-analysis`, `/optimize`, `/chat`).
-- **`app/services/analysis/`** — The deterministic auto-select router and the CoRe reasoning hop-counter.
-- **`app/services/optimization/`** — `textgrad` loop iteration, the `numpy`-backed kNN retriever, and the curated few-shot corpus.
-- **`app/services/scoring/`** — Uncompromising `temperature=0` TCRTE scoring audits. 
-- **`tests/`** — The comprehensive deterministic test suite mapped to every service component.
+- **`app/api/route/`** â€” FastAPI HTTP endpoints mapping to the UI (`/gap-analysis`, `/optimize`, `/chat`).
+- **`app/services/analysis/`** â€” The deterministic auto-select router and the CoRe reasoning hop-counter.
+- **`app/services/optimization/`** â€” `textgrad` loop iteration, the `numpy`-backed kNN retriever, and the curated few-shot corpus.
+- **`app/services/scoring/`** â€” Uncompromising `temperature=0` TCRTE scoring audits. 
+- **`tests/`** â€” The comprehensive deterministic test suite mapped to every service component.
 
 **Security:** The backend is completely stateless and does not store user API keys. Keys for LLM providers (Anthropic, OpenAI) are passed transiently on each client request. 
 
@@ -92,3 +92,7 @@ If you wish to test the end-to-end framework pipeline programmatically without b
 # Ensure APOST_TEST_API_KEY is defined internally or in .env
 uv run python sample_usage/run_all.py
 ```
+
+## Configuration Guide
+
+- **`app/docs/CONFIGURATION.md`** - centralized settings, default-value rationale, and safe tuning workflow for optimization runtime knobs.

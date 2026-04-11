@@ -96,17 +96,51 @@ class PromptQualityCritic:
         )
 
         try:
-            judge_response_text = await llm_client.call(
-                provider=LLM_JUDGE_PROVIDER,
-                prompt=critique_user_prompt,
-                max_tokens=MAX_TOKENS_CRITIQUE,
-                model=LLM_JUDGE_MODEL,
-                system=CRITIQUE_SYSTEM_PROMPT,
-                temperature=0.0,
-            )
+            # The judge occasionally emits malformed JSON (or JSON with missing keys),
+            # especially for very long prompts. Surfacing that as an F/0 score would be
+            # misleading to users, so we harden this by enforcing JSON output when
+            # supported and retrying once on clearly invalid payloads.
+            last_error: Exception | None = None
+            for attempt in range(2):
+                try:
+                    attempt_prompt = critique_user_prompt
+                    if attempt == 1:
+                        attempt_prompt = (
+                            "The previous response was invalid because it omitted one or more "
+                            "required JSON fields. Return a fresh JSON object that includes "
+                            "all required top-level keys and all 7 dimension keys exactly as "
+                            "specified. Do not omit any fields.\n\n"
+                            + critique_user_prompt
+                        )
 
-            parsed_response = extract_json_from_llm_response(judge_response_text)
-            return self._parse_critique_response(parsed_response)
+                    judge_response_text = await llm_client.call(
+                        provider=LLM_JUDGE_PROVIDER,
+                        prompt=attempt_prompt,
+                        max_tokens=MAX_TOKENS_CRITIQUE,
+                        model=LLM_JUDGE_MODEL,
+                        system=CRITIQUE_SYSTEM_PROMPT,
+                        temperature=0.0,
+                        # OpenAI-compatible response format hint; ignored by providers
+                        # that don't support it.
+                        response_format={"type": "json_object"},
+                    )
+
+                    parsed_response = extract_json_from_llm_response(judge_response_text)
+                    if not self._is_valid_critique_payload(parsed_response):
+                        raise ValueError("Critique payload missing required keys.")
+                    return self._parse_critique_response(parsed_response)
+                except Exception as e:  # noqa: BLE001 - intentional: LLM responses are unreliable
+                    last_error = e
+                    if attempt == 0:
+                        logger.warning(
+                            "PromptQualityCritic.critique_prompt() invalid judge payload; retrying once (%s).",
+                            e,
+                        )
+                        continue
+                    break
+
+            assert last_error is not None
+            raise last_error
 
         except Exception as critique_error:
             logger.warning(
@@ -117,6 +151,30 @@ class PromptQualityCritic:
             return self._create_fallback_result(
                 reason=f"Critique unavailable: {critique_error}"
             )
+
+    @staticmethod
+    def _is_valid_critique_payload(parsed_json: Any) -> bool:
+        """
+        Minimal schema validation for judge JSON responses.
+
+        We purposely avoid full schema enforcement (internal-only + performance),
+        but we need enough validation to detect malformed/empty payloads and retry.
+        """
+        if not isinstance(parsed_json, dict):
+            return False
+        dims = parsed_json.get("dimensions")
+        if not isinstance(dims, dict):
+            return False
+        required = {
+            "role_clarity",
+            "task_specificity",
+            "constraint_completeness",
+            "output_format",
+            "hallucination_resistance",
+            "edge_case_handling",
+            "improvement_over_raw",
+        }
+        return required.issubset(set(dims.keys()))
 
     # ──────────────────────────────────────────────────────────────────────
     # Public Method 2: Enhance a prompt based on critique

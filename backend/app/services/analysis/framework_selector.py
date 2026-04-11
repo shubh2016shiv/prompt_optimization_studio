@@ -28,13 +28,13 @@ Selection philosophy:
     QA/multi-doc, complex planning, complex reasoning).
   - Reserve TextGrad (iterative hardening) for truly complex prompts with
     materially weak TCRTE (< 50).
-  - For everything else, choose a lower-cost default (kernel or progressive).
+  - For everything else, choose a lower-cost/default ROI route (kernel/create).
 
 Return:
   (framework_id, reason_string) where framework_id is one of:
-  reasoning_aware, xml_structured, progressive, cot_ensemble,
+  reasoning_aware, xml_structured, cot_ensemble,
   tcrte, kernel, create, textgrad, overshoot_undershoot,
-  core_attention, ral_writer, opro, sammo.
+  core_attention, ral_writer.
 """
 
 import logging
@@ -46,8 +46,71 @@ from app.services.analysis.auto_selection_normalizer import (
 
 logger = logging.getLogger(__name__)
 
+# Auto mode can only route to this ROI-approved framework set.
+_AUTO_ROI_FRAMEWORK_ALLOWLIST: set[str] = {
+    "create",
+    "xml_structured",
+    "core_attention",
+    "ral_writer",
+    "cot_ensemble",
+    "overshoot_undershoot",
+    "textgrad",
+    "kernel",
+    "tcrte",
+    "reasoning_aware",
+}
+
+# Legacy routes that were intentionally excluded from auto mode.
+_AUTO_ROI_FRAMEWORK_REMAPPING: dict[str, str] = {
+    "opro": "textgrad",
+    "sammo": "core_attention",
+    "progressive": "create",
+}
+
+
+def _enforce_auto_roi_allowlist(selected_framework: str, reason: str) -> tuple[str, str]:
+    """
+    Ensure auto-routing only emits ROI-approved frameworks.
+
+    If a legacy rule selects a non-ROI framework, deterministically remap it
+    to the closest ROI option and append an explanatory reason.
+    """
+    if selected_framework in _AUTO_ROI_FRAMEWORK_ALLOWLIST:
+        return selected_framework, reason
+
+    remapped_framework = _AUTO_ROI_FRAMEWORK_REMAPPING.get(selected_framework, "kernel")
+    remap_reason = (
+        f"{reason} Auto-routing ROI policy remapped '{selected_framework}' "
+        f"to '{remapped_framework}'."
+    )
+    return remapped_framework, remap_reason
+
 
 def select_framework(
+    is_reasoning_model: bool,
+    task_type: str,
+    complexity: str,
+    tcrte_overall_score: int,
+    provider: str,
+    recommended_techniques: list[str] | None = None,
+    has_evaluation_dataset: bool = False,
+) -> tuple[str, str]:
+    """
+    Apply the deterministic decision tree and enforce ROI allowlist in auto mode.
+    """
+    selected_framework, reason = _select_framework_unrestricted(
+        is_reasoning_model=is_reasoning_model,
+        task_type=task_type,
+        complexity=complexity,
+        tcrte_overall_score=tcrte_overall_score,
+        provider=provider,
+        recommended_techniques=recommended_techniques,
+        has_evaluation_dataset=has_evaluation_dataset,
+    )
+    return _enforce_auto_roi_allowlist(selected_framework, reason)
+
+
+def _select_framework_unrestricted(
     is_reasoning_model: bool,
     task_type: str,
     complexity: str,

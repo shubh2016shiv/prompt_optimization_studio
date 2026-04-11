@@ -44,6 +44,8 @@ dict structure. The knn_retriever will automatically embed and index new entries
 on the next server startup without any code changes.
 """
 
+import hashlib
+import json
 from typing import TypedDict
 
 
@@ -233,6 +235,44 @@ _ANALYSIS: list[CorpusEntry] = [
             "prioritisation. Plain-prose constraint prevents bullet-point padding."
         ),
     },
+    {
+        "task_type": "reasoning",
+        "raw_prompt": (
+            "Support emergency department triage by ranking patient review urgency using "
+            "only vitals and nurse notes. Output strict JSON with triage_band, top_risk_signals, "
+            "missing_information, safe_next_step, and confidence (low/medium/high)."
+        ),
+        "optimized_system_prompt": (
+            "You are an emergency department triage support assistant. You will receive: "
+            "(a) chief complaint, (b) vitals stream, (c) known conditions, and (d) nurse notes. "
+            "Your task is to rank the urgency of clinician review and provide a safe next step "
+            "without diagnosing. Use ONLY the provided inputs; do not add facts.\n\n"
+            "Method:\n"
+            "1) Extract the highest-risk signals from vitals and notes (quote or paraphrase).\n"
+            "2) Identify missing information that materially affects safety.\n"
+            "3) Assign a triage_band (e.g., immediate/urgent/routine) consistent with the signals.\n"
+            "4) Propose one safe_next_step appropriate to the band.\n"
+            "5) Set confidence to low/medium/high based on completeness and signal strength.\n\n"
+            "Output: Return ONLY valid JSON with exactly these keys:\n"
+            "{\n"
+            '  "triage_band": "string",\n'
+            '  "top_risk_signals": ["string", "..."],\n'
+            '  "missing_information": ["string", "..."],\n'
+            '  "safe_next_step": "string",\n'
+            '  "confidence": "low|medium|high"\n'
+            "}\n\n"
+            "Safety:\n"
+            "- Do NOT diagnose.\n"
+            "- If key data is missing, state that in missing_information and lower confidence.\n"
+            "- Use cautious language; prefer safe escalation when uncertainty is high."
+        ),
+        "reasoning_trace": (
+            "Added a clear ED triage role boundary, enforced 'use only provided inputs' to prevent "
+            "hallucinated facts, introduced a stepwise method for risk extraction and missing-data handling, "
+            "and defined an exact JSON schema including confidence. Added safety guards to avoid diagnosis "
+            "and to escalate cautiously under uncertainty."
+        ),
+    },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -278,6 +318,39 @@ _QA: list[CorpusEntry] = [
             "and self-assessed reliability for each response. Numbered matching prevents "
             "reordering. Explicit general-knowledge prohibition closes the most common "
             "hallucination pathway."
+        ),
+    },
+    {
+        "task_type": "qa",
+        "raw_prompt": (
+            "Compare active medications against allergy records and discharge instructions. "
+            "Return strict JSON with keys: high_risk_conflicts, duplicate_therapies, unclear_orders, "
+            "recommended_followups. Never diagnose. If data is missing, output insufficient_data for that section."
+        ),
+        "optimized_system_prompt": (
+            "You are a clinical informatics assistant supporting hospital pharmacists. You will receive:\n"
+            "- active_meds (name, rxnorm_id, dose, frequency)\n"
+            "- allergies (strings)\n"
+            "- recent_discharges (meds + discontinuation notes)\n\n"
+            "Task:\n"
+            "Identify medication safety issues using ONLY the provided data. Do not diagnose.\n\n"
+            "Rules:\n"
+            "- Use conservative language and explicitly handle uncertainty.\n"
+            "- If a section cannot be completed due to missing data, set that key to \"insufficient_data\".\n\n"
+            "Output:\n"
+            "Return ONLY valid JSON with exactly these keys:\n"
+            "{\n"
+            '  "high_risk_conflicts": ["string", "..."] | "insufficient_data",\n'
+            '  "duplicate_therapies": ["string", "..."] | "insufficient_data",\n'
+            '  "unclear_orders": ["string", "..."] | "insufficient_data",\n'
+            '  "recommended_followups": ["string", "..."] | "insufficient_data"\n'
+            "}"
+        ),
+        "reasoning_trace": (
+            "Added a clear role (clinical informatics assistant), enforced a strict data boundary "
+            "('use only provided records'), and defined an exact JSON schema so outputs are machine-consumable. "
+            "Also added uncertainty handling and deterministic missing-data behavior via 'insufficient_data' "
+            "to prevent guessing."
         ),
     },
 ]
@@ -415,3 +488,20 @@ _DEFAULT_TASK_TYPE = "reasoning"
 def get_corpus_for_task(task_type: str) -> list[CorpusEntry]:
     """Return the corpus list for the given task_type, falling back to reasoning."""
     return CORPUS.get(task_type, CORPUS[_DEFAULT_TASK_TYPE])
+
+
+def _fingerprint_corpus(corpus: dict[str, list[CorpusEntry]]) -> str:
+    """
+    Compute a stable short fingerprint for cache versioning.
+
+    Few-shot corpus embeddings are cached in Redis. If the corpus changes but the
+    cache key stays constant, the system will keep using stale demonstrations.
+    This fingerprint is incorporated into the cache key so updates automatically
+    bust the cache.
+    """
+    payload = json.dumps(corpus, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()[:12]
+
+
+# Used by CachedOptimizationOperations to version the Redis cache key.
+CORPUS_FINGERPRINT = _fingerprint_corpus(CORPUS)
