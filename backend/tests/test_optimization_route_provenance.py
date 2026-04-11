@@ -27,7 +27,11 @@ def _base_payload(framework: str) -> dict:
         "model_id": "gpt-4.1-mini",
         "model_label": "GPT-4.1 Mini",
         "is_reasoning_model": False,
-        "gap_data": {"overall_score": 80, "complexity": "standard"},
+        "gap_data": {
+            "overall_score": 80,
+            "complexity": "medium",
+            "recommended_techniques": ["CoRe", "RAL-Writer"],
+        },
         "answers": {},
         "api_key": "dummy",
         "quality_gate_mode": "off",

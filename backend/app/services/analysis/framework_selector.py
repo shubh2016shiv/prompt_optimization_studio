@@ -39,6 +39,11 @@ Return:
 
 import logging
 
+from app.services.analysis.auto_selection_normalizer import (
+    normalize_complexity,
+    normalize_recommended_techniques,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -52,7 +57,9 @@ def select_framework(
     has_evaluation_dataset: bool = False,
 ) -> tuple[str, str]:
     """Apply the APOST decision tree deterministically."""
-    techniques = recommended_techniques or []
+    normalized_task_type = task_type.strip().lower()
+    normalized_complexity = normalize_complexity(complexity)
+    techniques = normalize_recommended_techniques(recommended_techniques)
 
     if is_reasoning_model:
         return (
@@ -60,50 +67,18 @@ def select_framework(
             "Reasoning model detected - built-in chain-of-thought active, external CoT injection suppressed.",
         )
 
-    if has_evaluation_dataset and any(
-        t in techniques for t in ("iterative_refinement", "empirical_optimization")
-    ):
+    if has_evaluation_dataset and "empirical_optimization" in techniques:
         return (
             "opro",
             "Evaluation dataset plus empirical/iterative optimization signal detected - "
             "OPRO selected to learn from prompt-score trajectories.",
         )
 
-    if (
-        complexity in ("complex", "expert")
-        and task_type in ("extraction", "qa", "analysis")
-        and any(t in techniques for t in ("structure_aware", "topological_mutation", "prompt_compression"))
-    ):
-        return (
-            "sammo",
-            "Structure-aware optimization signal detected for a high-complexity task - "
-            "SAMMO selected to mutate prompt topology and balance quality vs token cost.",
-        )
-
-    if task_type == "qa" or any(
-        t in techniques for t in ("multi-document", "xml_bounding", "structured_retrieval")
-    ):
-        return (
-            "xml_structured",
-            f"QA or multi-document task ({task_type}) - XML Structured Bounding optimises fact retrieval precision from structured sources.",
-        )
-
-    if task_type in ("planning", "coding") and complexity == "complex":
-        return (
-            "progressive",
-            f"Complex {task_type} task - Progressive scaffolding builds complexity incrementally to reduce instruction-following errors.",
-        )
-
-    if task_type in ("reasoning", "analysis") and complexity in ("complex", "expert"):
-        return (
-            "cot_ensemble",
-            f"Complex {task_type} task - CoT Ensemble injects kNN-retrieved few-shot reasoning traces (Medprompt pattern) to anchor step quality.",
-        )
-
-    if complexity == "complex" and tcrte_overall_score < 50:
+    if tcrte_overall_score < 50 and normalized_complexity in ("complex", "expert"):
         return (
             "textgrad",
-            f"Complex task with very low TCRTE ({tcrte_overall_score}/100) - TextGrad iterative hardening selected for recovery.",
+            f"High-complexity task with very low TCRTE ({tcrte_overall_score}/100) - "
+            "TextGrad iterative hardening selected for structural recovery before specialist routing.",
         )
 
     if tcrte_overall_score < 50:
@@ -112,47 +87,85 @@ def select_framework(
             f"Overall TCRTE score is {tcrte_overall_score}/100 - structural gaps must be filled before stylistic refinement can be applied.",
         )
 
-    if 50 <= tcrte_overall_score < 70 and complexity in ("standard", "expert"):
+    if (
+        normalized_complexity in ("complex", "expert")
+        and normalized_task_type in ("extraction", "qa", "analysis")
+        and "structure_aware" in techniques
+    ):
         return (
-            "overshoot_undershoot",
-            f"Moderate TCRTE ({tcrte_overall_score}/100) with {complexity} task - "
-            "prompt has basic structure but lacks failure-mode guardrails. "
-            "Overshoot/Undershoot prevention calibrates scope and depth controls.",
+            "sammo",
+            "Structure-aware optimization signal detected for a high-complexity task - "
+            "SAMMO selected to mutate prompt topology and balance quality vs token cost.",
         )
 
-    if "context_repetition" in techniques or "long_context" in techniques:
+    if normalized_task_type == "qa" or "xml_bounding" in techniques:
         return (
-            "core_attention",
-            "High context-loss risk detected (multi-hop/long context). "
-            "CoRe Attention-Aware framework selected to restructure for primacy/recency."
+            "xml_structured",
+            f"QA or XML-structured retrieval task ({normalized_task_type}) - XML Structured Bounding optimises fact retrieval precision from structured sources.",
         )
 
-    if "constraint_restatement" in techniques or task_type == "coding":
+    if (
+        "progressive_disclosure" in techniques and normalized_task_type in ("planning", "coding")
+    ) or (
+        normalized_task_type in ("planning", "coding") and normalized_complexity == "complex"
+    ):
         return (
-            "ral_writer",
-            "Heavy constraint/rule reliance detected. "
-            "RAL-Writer selected to isolate constraints and apply recency echo."
+            "progressive",
+            f"Planning/coding task ({normalized_task_type}) benefits from progressive staging - Progressive scaffolding builds complexity incrementally to reduce instruction-following errors.",
         )
 
-    if task_type in ("routing", "extraction", "classification") or complexity == "simple":
+    if (
+        "cot_ensemble" in techniques and normalized_task_type in ("reasoning", "analysis")
+    ) or (
+        normalized_task_type in ("reasoning", "analysis")
+        and normalized_complexity in ("complex", "expert")
+    ):
         return (
-            "kernel",
-            f"Simple or tool-oriented task ({task_type}, {complexity}) - Kernel framework produces lean, low-overhead prompts optimal for structured outputs.",
+            "cot_ensemble",
+            f"Reasoning/analysis task ({normalized_task_type}) needs structured reasoning support - CoT Ensemble injects kNN-retrieved few-shot reasoning traces (Medprompt pattern) to anchor step quality.",
         )
 
-    if task_type == "creative":
+    if normalized_task_type == "creative":
         return (
             "create",
             "Creative task - Create framework maximises originality signals while avoiding over-constraining format directives.",
         )
 
-    if complexity == "complex":
+    if "context_repetition" in techniques:
+        return (
+            "core_attention",
+            "High context-loss risk detected (multi-hop/long context). "
+            "CoRe Attention-Aware framework selected to restructure for primacy/recency.",
+        )
+
+    if "constraint_restatement" in techniques or normalized_task_type == "coding":
+        return (
+            "ral_writer",
+            "Heavy constraint/rule reliance detected. "
+            "RAL-Writer selected to isolate constraints and apply recency echo.",
+        )
+
+    if 50 <= tcrte_overall_score < 70 and normalized_complexity in ("standard", "expert"):
+        return (
+            "overshoot_undershoot",
+            f"Moderate TCRTE ({tcrte_overall_score}/100) with {normalized_complexity} task - "
+            "prompt has basic structure but lacks failure-mode guardrails. "
+            "Overshoot/Undershoot prevention calibrates scope and depth controls.",
+        )
+
+    if normalized_task_type in ("routing", "extraction", "classification") or normalized_complexity == "simple":
+        return (
+            "kernel",
+            f"Simple or tool-oriented task ({normalized_task_type}, {normalized_complexity}) - Kernel framework produces lean, low-overhead prompts optimal for structured outputs.",
+        )
+
+    if normalized_complexity == "complex":
         return (
             "progressive",
-            f"No specific rule matched for complex {task_type} task - Progressive selected as lower-cost default.",
+            f"No specific rule matched for complex {normalized_task_type} task - Progressive selected as lower-cost default.",
         )
 
     return (
         "kernel",
-        f"No specific rule matched for ({task_type}, {complexity}) - Kernel selected as lower-cost default.",
+        f"No specific rule matched for ({normalized_task_type}, {normalized_complexity}) - Kernel selected as lower-cost default.",
     )

@@ -18,7 +18,11 @@ from app.models.requests import OptimizationRequest
 from app.models.responses import OptimizationResponse
 from app.observability.langfuse_support import create_trace_id, start_trace, update_current_trace
 from app.observability.usage_tracking import UsageSnapshot, bind_usage_snapshot
-from app.services.analysis import count_reasoning_hops, select_framework
+from app.services.analysis import (
+    count_reasoning_hops,
+    normalize_gap_data_for_auto_selection,
+    select_framework,
+)
 from app.services.evaluation.task_level_evaluation import TaskLevelEvaluationService
 from app.services.optimization.cached_operations import CachedOptimizationOperations
 from app.services.optimization import retrieve_k_nearest
@@ -174,25 +178,15 @@ async def execute_optimization_request(
         auto_reason: str | None = None
 
         if request.framework == "auto":
-            tcrte_overall = 0
-            if request.gap_data and "overall_score" in request.gap_data:
-                tcrte_overall = int(request.gap_data["overall_score"])
-
-            techniques: list[str] = []
-            if request.gap_data and "recommended_techniques" in request.gap_data:
-                techniques = request.gap_data["recommended_techniques"]
-
-            complexity = "standard"
-            if request.gap_data and "complexity" in request.gap_data:
-                complexity = request.gap_data["complexity"]
+            normalized_auto_selection = normalize_gap_data_for_auto_selection(request.gap_data)
 
             effective_framework, auto_reason = select_framework(
                 is_reasoning_model=request.is_reasoning_model,
                 task_type=request.task_type,
-                complexity=complexity,
-                tcrte_overall_score=tcrte_overall,
+                complexity=normalized_auto_selection.complexity,
+                tcrte_overall_score=normalized_auto_selection.tcrte_overall_score,
                 provider=request.provider,
-                recommended_techniques=techniques,
+                recommended_techniques=normalized_auto_selection.recommended_techniques,
                 has_evaluation_dataset=bool(request.evaluation_dataset),
             )
             logger.info(
@@ -200,6 +194,13 @@ async def execute_optimization_request(
                 request_id=request_id,
                 framework=effective_framework,
                 auto_reason=auto_reason,
+                normalized_complexity=normalized_auto_selection.complexity,
+                normalized_score=normalized_auto_selection.tcrte_overall_score,
+                normalized_techniques=normalized_auto_selection.recommended_techniques,
+                defaults_applied=normalized_auto_selection.defaults_applied,
+                malformed_gap_data=normalized_auto_selection.malformed_gap_data,
+                ignored_unknown_techniques=normalized_auto_selection.unknown_techniques,
+                ignored_non_routing_techniques=normalized_auto_selection.ignored_techniques,
             )
         await _run_cancellation_checkpoint(
             cancellation_check=cancellation_check,
